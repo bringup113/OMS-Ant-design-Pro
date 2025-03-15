@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # PostgreSQL数据库
+  postgres:
+    image: postgres:14
+    container_name: oms_postgres
+    platform: linux/arm64/v8
+    environment:
+      POSTGRES_USER: oms_user
+      POSTGRES_PASSWORD: oms_password
+      POSTGRES_DB: oms_database
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oms_user -d oms_database"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - oms_network
+
+  # Redis缓存
+  redis:
+    image: redis:7
+    container_name: oms_redis
+    platform: linux/arm64/v8
+    command: redis-server --requirepass oms_redis_password --bind 0.0.0.0 --protected-mode no
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - oms_network
+
+  # pgAdmin (PostgreSQL管理工具)
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: oms_pgadmin
+    platform: linux/arm64/v8
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin_password
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    restart: always
+    networks:
+      - oms_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  oms_network:
+    driver: bridge 
