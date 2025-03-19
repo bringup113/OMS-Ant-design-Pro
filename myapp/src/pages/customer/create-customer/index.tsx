@@ -237,7 +237,7 @@ const CreateCustomer: React.FC = () => {
 
   return (
     <PageContainer content="填写客户的护照信息，完成基本信息的建档。也可以快速添加多个签证信息与订单信息。">
-      <Card bordered={false}>
+      <Card variant="borderless">
         <StepsForm
           current={current}
           onCurrentChange={(newCurrent) => {

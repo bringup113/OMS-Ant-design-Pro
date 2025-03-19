@@ -1,6 +1,6 @@
 import { DownOutlined, PlusOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { useRequest } from '@umijs/max';
+import { useRequest, history } from '@umijs/max';
 import {
   Avatar,
   Button,
@@ -17,10 +17,10 @@ import {
 import dayjs from 'dayjs';
 import type { FC } from 'react';
 import React, { useState } from 'react';
-import OperationModal from './components/OperationModal';
 import type { BasicListItemDataType } from './data.d';
 import { addFakeList, queryFakeList, removeFakeList, updateFakeList } from './service';
 import useStyles from './style.style';
+
 const RadioButton = Radio.Button;
 const RadioGroup = Radio.Group;
 const { Search } = Input;
@@ -69,8 +69,6 @@ const ListContent = ({
 };
 export const OrderList: FC = () => {
   const { styles } = useStyles();
-  const [done, setDone] = useState<boolean>(false);
-  const [open, setVisible] = useState<boolean>(false);
   const [current, setCurrent] = useState<Partial<BasicListItemDataType> | undefined>(undefined);
   const {
     data: listData,
@@ -105,18 +103,15 @@ export const OrderList: FC = () => {
     pageSize: 5,
     total: list.length,
   };
-  const showEditModal = (item: BasicListItemDataType) => {
-    setVisible(true);
-    setCurrent(item);
-  };
   const deleteItem = (id: string) => {
     postRun('remove', {
       id,
     });
   };
   const editAndDelete = (key: string | number, currentItem: BasicListItemDataType) => {
-    if (key === 'edit') showEditModal(currentItem);
-    else if (key === 'delete') {
+    if (key === 'edit') {
+      history.push(`/order/order-list/edit/${currentItem.id}`);
+    } else if (key === 'delete') {
       Modal.confirm({
         title: '删除订单',
         content: '确定删除该订单吗？',
@@ -127,12 +122,22 @@ export const OrderList: FC = () => {
     }
   };
   const extraContent = (
-    <div>
+    <div style={{ display: 'flex', alignItems: 'center' }}>
       <RadioGroup defaultValue="all">
         <RadioButton value="all">全部</RadioButton>
         <RadioButton value="progress">处理中</RadioButton>
         <RadioButton value="waiting">待处理</RadioButton>
       </RadioGroup>
+      
+      <Button
+        type="primary"
+        onClick={() => history.push('/order/order-list/create')}
+        style={{ margin: '0 16px' }}
+      >
+        <PlusOutlined />
+        添加订单
+      </Button>
+      
       <Search className={styles.extraContentSearch} placeholder="请输入" onSearch={() => ({})} />
     </div>
   );
@@ -159,21 +164,11 @@ export const OrderList: FC = () => {
       </a>
     </Dropdown>
   );
-  const handleDone = () => {
-    setDone(false);
-    setVisible(false);
-    setCurrent({});
-  };
-  const handleSubmit = (values: BasicListItemDataType) => {
-    setDone(true);
-    const method = values?.id ? 'update' : 'add';
-    postRun(method, values);
-  };
   return (
     <div>
       <PageContainer>
         <div className={styles.standardList}>
-          <Card bordered={false}>
+          <Card variant="borderless">
             <Row>
               <Col sm={8} xs={24}>
                 <Info title="待处理订单" value="8个订单" bordered />
@@ -212,7 +207,7 @@ export const OrderList: FC = () => {
                       key="edit"
                       onClick={(e) => {
                         e.preventDefault();
-                        showEditModal(item);
+                        history.push(`/order/order-list/edit/${item.id}`);
                       }}
                     >
                       编辑
@@ -232,26 +227,6 @@ export const OrderList: FC = () => {
           </Card>
         </div>
       </PageContainer>
-      <Button
-        type="dashed"
-        onClick={() => {
-          setVisible(true);
-        }}
-        style={{
-          width: '100%',
-          marginBottom: 8,
-        }}
-      >
-        <PlusOutlined />
-        添加订单
-      </Button>
-      <OperationModal
-        done={done}
-        open={open}
-        current={current}
-        onDone={handleDone}
-        onSubmit={handleSubmit}
-      />
     </div>
   );
 };

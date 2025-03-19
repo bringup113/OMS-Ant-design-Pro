@@ -189,7 +189,7 @@ export const BillManagement: FC = () => {
 
           <Card
             className={styles.listCard}
-            bordered={false}
+            variant="borderless"
             title="账单列表"
             style={{
               marginTop: 24,
