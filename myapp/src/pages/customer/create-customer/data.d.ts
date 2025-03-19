@@ -11,7 +11,6 @@ export interface CustomerDataType {
 export interface VisaDataType {
   id: React.Key;
   country: string;
-  visaType: string;
   visaName: string;
   issueDate: any;
   expiryDate: any;

@@ -8,23 +8,31 @@ import {
   StepsForm,
   EditableProTable,
   ProColumns,
+  ProFormRadio,
+  ProFormTextArea,
+  ProCard,
 } from '@ant-design/pro-components';
 import type { FormInstance } from 'antd';
-import { Alert, Button, Card, Descriptions, Divider, Result, Typography, Space } from 'antd';
-import React, { useRef, useState } from 'react';
+import { Alert, Button, Card, Descriptions, Divider, Result, Typography, Space, message, Row, Col, Spin } from 'antd';
+import React, { useRef, useState, useMemo } from 'react';
 import type { CustomerDataType, VisaDataType } from './data.d';
 import useStyles from './style.style';
 import moment from 'moment';
+import dayjs from 'dayjs';
+import { history, request, useRequest } from '@umijs/max';
+import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
+import { createCustomer } from '@/services/system/customer';
 
 const { Text } = Typography;
 
 const StepDescriptions: React.FC<{
   stepData: CustomerDataType;
   bordered?: boolean;
-}> = ({ stepData, bordered }) => {
+  column?: number;
+}> = ({ stepData, bordered, column }) => {
   const { passportNo, name, gender, country, birthDate, issueDate, expiryDate } = stepData;
   return (
-    <Descriptions column={1} bordered={bordered}>
+    <Descriptions column={column || 1} bordered={bordered}>
       <Descriptions.Item label="护照号码">{passportNo}</Descriptions.Item>
       <Descriptions.Item label="客户姓名">{name}</Descriptions.Item>
       <Descriptions.Item label="性别">{gender === 'male' ? '男' : '女'}</Descriptions.Item>
@@ -51,7 +59,7 @@ const StepResult: React.FC<{
           <Button type="primary" onClick={props.onFinish}>
             继续添加
           </Button>
-          <Button>查看客户列表</Button>
+          <Button onClick={() => history.push('/customer')}>查看客户列表</Button>
         </>
       }
       className={styles.result}
@@ -61,7 +69,7 @@ const StepResult: React.FC<{
   );
 };
 
-const CreateCustomer: React.FC<Record<string, any>> = () => {
+const CreateCustomer: React.FC = () => {
   const { styles } = useStyles();
   const [stepData, setStepData] = useState<CustomerDataType>({
     passportNo: '',
@@ -82,50 +90,31 @@ const CreateCustomer: React.FC<Record<string, any>> = () => {
     {
       id: defaultRowKey,
       country: '',
-      visaType: '',
       visaName: '',
       issueDate: null,
       expiryDate: null,
     }
   ]);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [currentStep, setCurrentStep] = useState<number>(0);
   
   // 签证信息表格列定义
   const visaColumns: ProColumns<VisaDataType>[] = [
     {
       title: '国家',
       dataIndex: 'country',
-      valueType: 'select',
-      valueEnum: {
-        china: '中国',
-        usa: '美国',
-        uk: '英国',
-        japan: '日本',
-        korea: '韩国',
-        france: '法国',
-        germany: '德国',
-        italy: '意大利',
-        russia: '俄罗斯',
-        canada: '加拿大',
-        australia: '澳大利亚',
-        newZealand: '新西兰',
-      },
-    },
-    {
-      title: '签证类型',
-      dataIndex: 'visaType',
-      valueType: 'select',
-      valueEnum: {
-        tourist: '旅游签证',
-        business: '商务签证',
-        work: '工作签证',
-        study: '学习签证',
-        family: '家庭团聚签证',
+      valueType: 'text',
+      formItemProps: {
+        rules: [{ required: true, message: '此项为必填项' }],
       },
     },
     {
       title: '签证名称',
       dataIndex: 'visaName',
       valueType: 'text',
+      formItemProps: {
+        rules: [{ required: true, message: '此项为必填项' }],
+      },
     },
     {
       title: '签发日期',
@@ -161,115 +150,235 @@ const CreateCustomer: React.FC<Record<string, any>> = () => {
     },
   ];
 
+  // 保存客户基本信息并返回
+  const saveCustomerAndReturn = async () => {
+    try {
+      // 验证表单
+      const values = await formRef.current?.validateFields();
+      if (!values) return;
+      
+      // 提交基本信息
+      const customerData = {
+        name: values.name,
+        passportNo: values.passportNo,
+        gender: values.gender,
+        country: values.country,
+        birthDate: values.birthDate ? dayjs(values.birthDate).format('YYYY-MM-DD') : null,
+        issueDate: values.passportValidityPeriod?.[0] ? dayjs(values.passportValidityPeriod[0]).format('YYYY-MM-DD') : null,
+        expiryDate: values.passportValidityPeriod?.[1] ? dayjs(values.passportValidityPeriod[1]).format('YYYY-MM-DD') : null,
+      };
+      
+      const response = await request('/api/customers', {
+        method: 'POST',
+        data: customerData,
+      });
+      
+      if (response.success) {
+        message.success('客户创建成功');
+        history.push('/customer');
+      } else {
+        message.error('客户创建失败');
+      }
+    } catch (error) {
+      message.error('操作失败');
+    }
+  };
+
+  // 保存客户基本信息和签证信息
+  const saveCustomerAndVisas = async () => {
+    try {
+      // 先提交基本信息，获取客户ID
+      const customerData = {
+        name: stepData.name,
+        passportNo: stepData.passportNo,
+        gender: stepData.gender,
+        country: stepData.country,
+        birthDate: stepData.birthDate ? dayjs(stepData.birthDate).format('YYYY-MM-DD') : null,
+        issueDate: stepData.issueDate ? dayjs(stepData.issueDate).format('YYYY-MM-DD') : null,
+        expiryDate: stepData.expiryDate ? dayjs(stepData.expiryDate).format('YYYY-MM-DD') : null,
+      };
+      
+      const customerResponse = await request('/api/customers', {
+        method: 'POST',
+        data: customerData,
+      });
+      
+      if (customerResponse.success && customerResponse.data) {
+        const customerId = customerResponse.data.id;
+        
+        // 提交签证信息
+        const visaData = visaDataSource.filter(item => item.country && item.visaName).map(item => ({
+          customerId,
+          country: item.country,
+          visaName: item.visaName,
+          issueDate: item.issueDate ? dayjs(item.issueDate).format('YYYY-MM-DD') : null,
+          expiryDate: item.expiryDate ? dayjs(item.expiryDate).format('YYYY-MM-DD') : null,
+        }));
+        
+        if (visaData.length > 0) {
+          await request(`/api/customers/${customerId}/visas/batch`, {
+            method: 'POST',
+            data: visaData,
+          });
+        }
+        
+        message.success('客户创建成功');
+        setCurrent(2);
+        return true;
+      } else {
+        message.error('客户创建失败');
+        return false;
+      }
+    } catch (error) {
+      message.error('操作失败');
+      return false;
+    }
+  };
+
   return (
     <PageContainer content="填写客户的护照信息，完成基本信息的建档。也可以快速添加多个签证信息与订单信息。">
       <Card bordered={false}>
         <StepsForm
           current={current}
-          onCurrentChange={setCurrent}
+          onCurrentChange={(newCurrent) => {
+            setCurrent(newCurrent);
+            // 进入第二步时，确保默认行处于编辑状态
+            if (newCurrent === 1 && visaDataSource.length > 0) {
+              setEditableRowKeys(visaDataSource.map(item => item.id));
+            }
+          }}
           submitter={{
-            render: (props, dom) => {
-              if (props.step === 2) {
-                return null;
+            render: (props) => {
+              if (props.step === 0) {
+                return (
+                  <Space>
+                    <Button type="primary" onClick={() => props.onSubmit?.()}>
+                      下一步
+                    </Button>
+                    <Button type="primary" onClick={saveCustomerAndReturn}>
+                      保存返回
+                    </Button>
+                  </Space>
+                );
               }
-              return (
-                <Space>
-                  {dom}
-                  <Button>保存返回</Button>
-                </Space>
-              );
+              
+              if (props.step === 1) {
+                return (
+                  <Button type="primary" onClick={saveCustomerAndVisas}>
+                    保存
+                  </Button>
+                );
+              }
+              
+              return null;
             },
           }}
         >
-          <StepsForm.StepForm<CustomerDataType>
+          <StepsForm.StepForm
+            name="base"
+            title="客户基本信息"
             formRef={formRef}
-            title="填写护照信息"
-            initialValues={stepData}
             onFinish={async (values) => {
-              setStepData(values);
+              setStepData(values as CustomerDataType);
               return true;
             }}
           >
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <ProFormText
-                label="客户姓名"
-                width="sm"
-                name="name"
-                placeholder="请输入客户姓名"
-              />
-              <ProFormText
-                label="护照号码"
-                width="sm"
-                name="passportNo"
-                placeholder="请输入护照号码"
-              />
+            <div style={{ padding: '24px 0' }}>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={24} md={12}>
+                  <ProFormText
+                    label="护照号码"
+                    name="passportNo"
+                    placeholder="请输入护照号码"
+                    rules={[{ required: true, message: '请输入护照号码' }]}
+                    fieldProps={{
+                      size: 'large',
+                    }}
+                  />
+                </Col>
+                <Col xs={24} sm={24} md={12}>
+                  <ProFormText
+                    label="客户姓名"
+                    name="name"
+                    placeholder="请输入客户姓名"
+                    rules={[{ required: true, message: '请输入客户姓名' }]}
+                    fieldProps={{
+                      size: 'large',
+                    }}
+                  />
+                </Col>
+              </Row>
+              
+              <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+                <Col xs={24} sm={24} md={8}>
+                  <ProFormRadio.Group
+                    label="性别"
+                    name="gender"
+                    options={[
+                      { label: '男', value: 'male' },
+                      { label: '女', value: 'female' },
+                    ]}
+                    rules={[{ required: true, message: '请选择性别' }]}
+                    fieldProps={{
+                      size: 'large',
+                    }}
+                  />
+                </Col>
+                <Col xs={24} sm={24} md={8}>
+                  <ProFormText
+                    label="国家"
+                    name="country"
+                    placeholder="请输入国家"
+                    rules={[{ required: true, message: '请输入国家' }]}
+                    fieldProps={{
+                      size: 'large',
+                    }}
+                  />
+                </Col>
+                <Col xs={24} sm={24} md={8}>
+                  <ProFormDatePicker
+                    label="出生日期"
+                    name="birthDate"
+                    fieldProps={{
+                      format: 'YYYY-MM-DD',
+                      size: 'large',
+                      style: { width: '100%' },
+                    }}
+                    transform={(value: any) => {
+                      return {
+                        birthDate: value ? dayjs(value).format('YYYY-MM-DD') : null,
+                      };
+                    }}
+                  />
+                </Col>
+              </Row>
+              
+              <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+                <Col span={24}>
+                  <ProFormDateRangePicker
+                    label="护照有效期"
+                    name="passportValidityPeriod"
+                    fieldProps={{
+                      format: 'YYYY-MM-DD',
+                      size: 'large',
+                      style: { width: '100%' },
+                    }}
+                    transform={([issueDate, expiryDate]: any[]) => {
+                      return {
+                        issueDate: issueDate ? dayjs(issueDate).format('YYYY-MM-DD') : null,
+                        expiryDate: expiryDate ? dayjs(expiryDate).format('YYYY-MM-DD') : null,
+                      };
+                    }}
+                  />
+                </Col>
+              </Row>
             </div>
-            
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <ProFormSelect
-                label="性别"
-                width="xs"
-                name="gender"
-                valueEnum={{
-                  male: '男',
-                  female: '女',
-                }}
-                placeholder="请选择性别"
-                style={{ width: 'calc(50% - 8px)' }}
-              />
-              <ProFormSelect
-                label="国家"
-                width="xs"
-                name="country"
-                valueEnum={{
-                  china: '中国',
-                  usa: '美国',
-                  uk: '英国',
-                  japan: '日本',
-                  korea: '韩国',
-                  france: '法国',
-                  germany: '德国',
-                  italy: '意大利',
-                  russia: '俄罗斯',
-                  canada: '加拿大',
-                  australia: '澳大利亚',
-                  newZealand: '新西兰',
-                }}
-                placeholder="请选择国家"
-                style={{ width: 'calc(50% - 8px)' }}
-              />
-              <ProFormDatePicker
-                label="出生日期"
-                width="sm"
-                name="birthDate"
-                fieldProps={{
-                  format: 'YYYY-MM-DD',
-                }}
-                transform={(value: any) => {
-                  return {
-                    birthDate: value ? value.valueOf() : null,
-                  };
-                }}
-              />
-            </div>
-            
-            <ProFormDateRangePicker
-              label="护照有效期"
-              width="md"
-              name="passportValidityPeriod"
-              fieldProps={{
-                format: 'YYYY-MM-DD',
-              }}
-              transform={(value: any) => {
-                return {
-                  issueDate: value?.[0] ? value[0].valueOf() : null,
-                  expiryDate: value?.[1] ? value[1].valueOf() : null,
-                };
-              }}
-            />
           </StepsForm.StepForm>
 
-          <StepsForm.StepForm title="填写签证信息">
+          <StepsForm.StepForm
+            name="visa"
+            title="签证信息"
+          >
             <div style={{ marginBottom: 24 }}>
               <Space direction="vertical" size="large" style={{ display: 'flex' }}>
                 <div>
@@ -286,18 +395,20 @@ const CreateCustomer: React.FC<Record<string, any>> = () => {
                   headerTitle="签证信息"
                   maxLength={10}
                   columns={visaColumns}
-                  value={visaDataSource}
-                  onChange={setVisaDataSource as any}
                   recordCreatorProps={{
                     newRecordType: 'dataSource',
                     record: () => ({
                       id: Date.now(),
                       country: '',
-                      visaType: '',
                       visaName: '',
                       issueDate: null,
                       expiryDate: null,
                     }),
+                    creatorButtonText: '添加签证信息',
+                  }}
+                  value={visaDataSource}
+                  onChange={(value) => {
+                    setVisaDataSource(value as VisaDataType[]);
                   }}
                   editable={{
                     type: 'multiple',
@@ -311,8 +422,11 @@ const CreateCustomer: React.FC<Record<string, any>> = () => {
               </Space>
             </div>
           </StepsForm.StepForm>
-          
-          <StepsForm.StepForm title="完成">
+
+          <StepsForm.StepForm
+            name="result"
+            title="完成"
+          >
             <StepResult
               onFinish={async () => {
                 setCurrent(0);
@@ -322,7 +436,6 @@ const CreateCustomer: React.FC<Record<string, any>> = () => {
                   {
                     id: newDefaultRowKey,
                     country: '',
-                    visaType: '',
                     visaName: '',
                     issueDate: null,
                     expiryDate: null,
@@ -331,69 +444,8 @@ const CreateCustomer: React.FC<Record<string, any>> = () => {
                 setEditableRowKeys([newDefaultRowKey]);
               }}
             >
-              <div style={{ marginBottom: 24 }}>
-                <Text strong style={{ fontSize: 16 }}>客户基本信息</Text>
-                <StepDescriptions stepData={stepData} bordered />
-              </div>
-              
-              <div>
-                <Text strong style={{ fontSize: 16 }}>签证信息</Text>
-                {visaDataSource.length > 0 ? (
-                  <table style={{ width: '100%', marginTop: 16, borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ border: '1px solid #f0f0f0', padding: 8 }}>国家</th>
-                        <th style={{ border: '1px solid #f0f0f0', padding: 8 }}>签证类型</th>
-                        <th style={{ border: '1px solid #f0f0f0', padding: 8 }}>签证名称</th>
-                        <th style={{ border: '1px solid #f0f0f0', padding: 8 }}>签发日期</th>
-                        <th style={{ border: '1px solid #f0f0f0', padding: 8 }}>到期日期</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visaDataSource.map((visa) => (
-                        <tr key={visa.id}>
-                          <td style={{ border: '1px solid #f0f0f0', padding: 8 }}>
-                            {visa.country === 'china' && '中国'}
-                            {visa.country === 'usa' && '美国'}
-                            {visa.country === 'uk' && '英国'}
-                            {visa.country === 'japan' && '日本'}
-                            {visa.country === 'korea' && '韩国'}
-                            {visa.country === 'france' && '法国'}
-                            {visa.country === 'germany' && '德国'}
-                            {visa.country === 'italy' && '意大利'}
-                            {visa.country === 'russia' && '俄罗斯'}
-                            {visa.country === 'canada' && '加拿大'}
-                            {visa.country === 'australia' && '澳大利亚'}
-                            {visa.country === 'newZealand' && '新西兰'}
-                          </td>
-                          <td style={{ border: '1px solid #f0f0f0', padding: 8 }}>
-                            {visa.visaType === 'tourist' && '旅游签证'}
-                            {visa.visaType === 'business' && '商务签证'}
-                            {visa.visaType === 'work' && '工作签证'}
-                            {visa.visaType === 'study' && '学习签证'}
-                            {visa.visaType === 'family' && '家庭团聚签证'}
-                          </td>
-                          <td style={{ border: '1px solid #f0f0f0', padding: 8 }}>{visa.visaName}</td>
-                          <td style={{ border: '1px solid #f0f0f0', padding: 8 }}>
-                            {visa.issueDate ? moment(visa.issueDate).format('YYYY-MM-DD') : '-'}
-                          </td>
-                          <td style={{ border: '1px solid #f0f0f0', padding: 8 }}>
-                            {visa.expiryDate ? moment(visa.expiryDate).format('YYYY-MM-DD') : '-'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div style={{ marginTop: 16 }}>
-                    <Text type="secondary">暂无签证信息</Text>
-                  </div>
-                )}
-              </div>
+              {/* 卡片内容已移除 */}
             </StepResult>
-            <div style={{ marginTop: 24, textAlign: 'center' }}>
-              <Button type="primary">保存返回</Button>
-            </div>
           </StepsForm.StepForm>
         </StepsForm>
       </Card>
