@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Get, Request, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Get, Request, UnauthorizedException, InternalServerErrorException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -116,5 +116,49 @@ export class AuthController {
         })) || []
       },
     };
+  }
+
+  @Get('currentuser')
+  @UseGuards(JwtAuthGuard)
+  async getCurrentUser(@Request() req) {
+    const user = req.user;
+    
+    if (!user) {
+      throw new UnauthorizedException('用户未认证');
+    }
+    
+    try {
+      const fullUser = await this.authService.getUserDetail(user.id);
+      
+      if (!fullUser) {
+        throw new UnauthorizedException('用户不存在或已被删除');
+      }
+      
+      // 获取用户权限值
+      const permissionValue = await this.authService.calculateUserPermissions(user);
+      
+      return {
+        userid: fullUser.id,
+        name: fullUser.name,
+        avatar: fullUser.avatar || 'https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png',
+        email: fullUser.email,
+        signature: fullUser.profile || '暂无个人简介',
+        title: '系统用户', // 固定职位名称，因为User没有title属性
+        group: fullUser.organization?.name || '暂无所属部门',
+        tags: [
+          {
+            key: '0',
+            label: '很有想法的',
+          },
+        ],
+        unreadCount: 0,
+        roles: fullUser.roles,
+        permissions: this.authService.getUserPermissions(fullUser),
+        permissionValue: permissionValue,
+      };
+    } catch (error) {
+      console.error('获取用户详情失败:', error);
+      throw new InternalServerErrorException('获取用户详情失败');
+    }
   }
 } 

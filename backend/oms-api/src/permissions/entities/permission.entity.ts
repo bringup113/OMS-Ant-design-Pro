@@ -14,6 +14,9 @@ export class Permission {
   @Column()
   type: string;
 
+  @Column({ default: 0 })
+  permission_value: number;
+
   @ManyToOne(() => Permission, permission => permission.children, { nullable: true })
   @JoinColumn({ name: 'parent_id' })
   parent: Permission;

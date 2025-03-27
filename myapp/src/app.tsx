@@ -37,6 +37,7 @@ export interface CurrentUser {
   unreadCount?: number;
   roles?: Role[];
   permissions?: string[];
+  permissionValue?: number;
 }
 
 export interface InitialState {

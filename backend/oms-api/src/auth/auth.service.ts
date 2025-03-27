@@ -1,7 +1,10 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
+import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
 
 @Injectable()
@@ -9,6 +12,8 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    @InjectRepository(User)
+    private usersRepository: Repository<User>,
   ) {}
 
   async validateUser(username: string, password: string): Promise<any> {
@@ -102,7 +107,61 @@ export class AuthService {
     };
   }
 
-  private getUserPermissions(user: any): string[] {
+  // 新增：计算用户权限值 (permission_value)
+  async calculateUserPermissions(user: User): Promise<number> {
+    // 检查用户是否具有管理员角色
+    const isAdmin = user.roles?.some(role => role.code === 'SUPER_ADMIN' || role.code === 'ADMIN');
+    
+    // 如果用户是管理员，给予所有权限
+    if (isAdmin) {
+      return 0xFFFFFFFF; // 所有位都为1，表示拥有所有权限
+    }
+    
+    // 加载用户的完整数据（包括组织和角色）
+    const fullUser = await this.usersRepository.findOne({
+      where: { id: user.id },
+      relations: ['organization', 'organization.roles', 'organization.roles.permissions'],
+    });
+    
+    if (!fullUser || !fullUser.organization) {
+      return 0; // 没有权限
+    }
+    
+    // 合并用户所属组织的所有角色的权限
+    let finalPermission = 0;
+    
+    if (fullUser.organization.roles) {
+      for (const role of fullUser.organization.roles) {
+        if (role.permissions) {
+          for (const permission of role.permissions) {
+            // 使用位运算"或"(OR)合并权限
+            finalPermission |= permission.permission_value || 0;
+          }
+        }
+      }
+    }
+    
+    return finalPermission;
+  }
+
+  /**
+   * 获取用户详细信息
+   * @param userId 用户ID
+   * @returns 用户详细信息，包括组织和角色
+   */
+  async getUserDetail(userId: number): Promise<User | null> {
+    return this.usersRepository.findOne({
+      where: { id: userId },
+      relations: ['organization', 'organization.roles', 'organization.roles.permissions', 'roles'],
+    });
+  }
+
+  /**
+   * 获取用户权限代码列表
+   * @param user 用户对象（需要包含组织和角色信息）
+   * @returns 权限代码数组
+   */
+  public getUserPermissions(user: any): string[] {
     // 从机构角色中获取所有权限
     const permissions = new Set<string>();
     
