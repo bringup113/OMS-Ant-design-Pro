@@ -39,7 +39,4 @@ export class CreateUserDto {
 
   @IsOptional()
   organization_id?: number;
-
-  @IsOptional()
-  role_ids?: number[];
 } 

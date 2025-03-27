@@ -28,14 +28,14 @@ export class User {
   @Column({ default: '1' })
   status: string;
 
-  @Column({ default: 'self' })
+  @Column({ name: 'data_scope', nullable: true })
   data_scope: string;
 
-  @ManyToOne(() => Organization, { eager: true })
+  @ManyToOne(() => Organization, { nullable: true })
   @JoinColumn({ name: 'organization_id' })
   organization: Organization;
 
-  @ManyToMany(() => Role, { eager: true })
+  @ManyToMany(() => Role)
   @JoinTable({
     name: 'user_roles',
     joinColumn: { name: 'user_id', referencedColumnName: 'id' },
@@ -43,9 +43,9 @@ export class User {
   })
   roles: Role[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   created_at: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updated_at: Date;
 } 

@@ -4,12 +4,17 @@ import { request } from '@umijs/max';
 
 /** 获取当前用户 GET /api/currentUser */
 export async function currentUser(options?: { [key: string]: any }) {
-  return request<{
-    data: API.CurrentUser;
-  }>('/api/auth/profile', {
+  const token = localStorage.getItem('token');
+  console.log('调用获取用户信息 API, token:', token);
+  const response = await request<API.CurrentUser>('/api/auth/profile', {
     method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
     ...(options || {}),
   });
+  console.log('获取用户信息 API 响应:', response);
+  return response;
 }
 
 /** 退出登录 POST /api/login/outLogin */
@@ -22,7 +27,8 @@ export async function outLogin(options?: { [key: string]: any }) {
 
 /** 登录 POST /api/login/account */
 export async function login(body: API.LoginParams, options?: { [key: string]: any }) {
-  return request<API.LoginResult>('/api/auth/login', {
+  console.log('调用登录 API, 参数:', body);
+  const response = await request<API.LoginResult>('/api/auth/login', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -30,6 +36,8 @@ export async function login(body: API.LoginParams, options?: { [key: string]: an
     data: body,
     ...(options || {}),
   });
+  console.log('登录 API 响应:', response);
+  return response;
 }
 
 /** 此处后端没有提供注释 GET /api/notices */

@@ -4,47 +4,117 @@ import type { Settings as LayoutSettings } from '@ant-design/pro-components';
 import { SettingDrawer } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { history, Link, useIntl } from '@umijs/max';
+import { App as AntApp, message, App } from 'antd';
 import defaultSettings from '../config/defaultSettings';
 import { errorConfig } from './requestErrorConfig';
 import { currentUser as queryCurrentUser } from './services/ant-design-pro/api';
 const isDev = process.env.NODE_ENV === 'development';
 const loginPath = '/user/login';
 
+// 配置 message 全局配置
+message.config({
+  duration: 2,
+  maxCount: 3,
+});
+
+export interface Role {
+  code: string;
+  name: string;
+}
+
+export interface CurrentUser {
+  access: string;
+  avatar?: string;
+  name?: string;
+  title?: string;
+  group?: string;
+  signature?: string;
+  tags?: {
+    key: string;
+    label: string;
+  }[];
+  userid?: string;
+  unreadCount?: number;
+  roles?: Role[];
+  permissions?: string[];
+}
+
+export interface InitialState {
+  currentUser?: CurrentUser;
+  settings?: Partial<LayoutSettings>;
+  loading?: boolean;
+  fetchUserInfo?: () => Promise<CurrentUser | undefined>;
+}
+
 /**
  * @see  https://umijs.org/zh-CN/plugins/plugin-initial-state
  * */
-export async function getInitialState(): Promise<{
-  settings?: Partial<LayoutSettings>;
-  currentUser?: API.CurrentUser;
-  loading?: boolean;
-  fetchUserInfo?: () => Promise<API.CurrentUser | undefined>;
-}> {
+export async function getInitialState(): Promise<InitialState> {
   const fetchUserInfo = async () => {
     try {
-      const msg = await queryCurrentUser({
+      // 检查是否有token
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No token found');
+      }
+      
+      console.log('开始获取用户信息...');
+      console.log('当前token:', token);
+      
+      const response = await queryCurrentUser({
         skipErrorHandler: true,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       });
-      // 后端返回的可能是 msg 或 msg.data，需要处理两种情况
-      return msg.data || msg;
-    } catch (error) {
-      history.push(loginPath);
+      console.log('获取到的用户信息响应:', response);
+      
+      // 检查并处理返回的数据结构
+      if (!response) {
+        throw new Error('No response from server');
+      }
+
+      return response as CurrentUser;
+    } catch (error: any) {
+      console.error('获取用户信息失败:', error);
+      
+      // 如果是 401 错误，清除 token
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        history.push(loginPath);
+      }
+      
+      return undefined;
     }
-    return undefined;
   };
-  // 如果不是登录页面，执行
+  
+  // 如果是登录页面，不执行
   const { location } = history;
-  if (![loginPath, '/user/register', '/user/register-result'].includes(location.pathname)) {
+  if (location.pathname === loginPath) {
+    return {
+      fetchUserInfo,
+      settings: defaultSettings as Partial<LayoutSettings>,
+    };
+  }
+  
+  // 如果不是登录页面，尝试获取用户信息
+  try {
+    console.log('初始化用户状态...');
     const currentUser = await fetchUserInfo();
+    console.log('初始化用户状态完成:', currentUser);
     return {
       fetchUserInfo,
       currentUser,
       settings: defaultSettings as Partial<LayoutSettings>,
     };
+  } catch (error) {
+    console.error('初始化用户状态失败:', error);
+    return {
+      fetchUserInfo,
+      settings: defaultSettings as Partial<LayoutSettings>,
+    };
   }
-  return {
-    fetchUserInfo,
-    settings: defaultSettings as Partial<LayoutSettings>,
-  };
 }
 
 // ProLayout 支持的api https://procomponents.ant.design/components/layout
@@ -103,7 +173,9 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
       // if (initialState?.loading) return <PageLoading />;
       return (
         <>
-          {children}
+          <AntApp>
+            {children}
+          </AntApp>
           {isDev && (
             <SettingDrawer
               disableUrlParams
@@ -132,3 +204,11 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
 export const request: RequestConfig = {
   ...errorConfig,
 };
+
+export function rootContainer(container: any) {
+  return (
+    <App>
+      {container}
+    </App>
+  );
+}

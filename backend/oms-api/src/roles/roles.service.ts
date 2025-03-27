@@ -103,13 +103,35 @@ export class RolesService {
       whereConditions.status = filters.status;
     }
     
-    const [roles, total] = await this.rolesRepository.findAndCount({
-      where: whereConditions,
-      relations: ['permissions', 'organizations'],
-      skip,
-      take,
-      order: { sort: 'ASC' },
-    });
+    let queryBuilder = this.rolesRepository.createQueryBuilder('role')
+      .leftJoinAndSelect('role.permissions', 'permission')
+      .leftJoinAndSelect('role.organizations', 'organization');
+    
+    // 应用基本过滤条件
+    if (whereConditions.name) {
+      queryBuilder = queryBuilder.andWhere('role.name ILIKE :name', { name: whereConditions.name });
+    }
+    
+    if (whereConditions.code) {
+      queryBuilder = queryBuilder.andWhere('role.code ILIKE :code', { code: whereConditions.code });
+    }
+    
+    if (whereConditions.status) {
+      queryBuilder = queryBuilder.andWhere('role.status = :status', { status: whereConditions.status });
+    }
+    
+    // 根据组织代码过滤角色
+    if (filters.organization) {
+      queryBuilder = queryBuilder.andWhere('organization.code = :orgCode', { orgCode: filters.organization });
+    }
+    
+    // 添加排序、分页
+    queryBuilder = queryBuilder
+      .orderBy('role.sort', 'ASC')
+      .skip(skip)
+      .take(take);
+    
+    const [roles, total] = await queryBuilder.getManyAndCount();
     
     // 转换为前端需要的格式
     const transformedRoles = roles.map(role => this.transformToFrontendFormat(role));
@@ -132,6 +154,11 @@ export class RolesService {
   }
 
   async update(id: number, updateRoleDto: UpdateRoleDto): Promise<any> {
+    // 超级管理员角色（ID为1）不可编辑
+    if (id === 1) {
+      throw new ConflictException('超级管理员角色不可编辑');
+    }
+    
     const role = await this.rolesRepository.findOne({
       where: { id },
       relations: ['permissions', 'organizations'],
@@ -183,6 +210,15 @@ export class RolesService {
   }
 
   async remove(id: number): Promise<void> {
+    // 超级管理员角色（ID为1）和供应商角色（ID为2）不可删除
+    if (id === 1) {
+      throw new ConflictException('超级管理员角色不可删除');
+    }
+    
+    if (id === 2) {
+      throw new ConflictException('供应商角色不可删除');
+    }
+    
     // 检查是否有用户关联
     const usersCount = await this.rolesRepository.query(
       'SELECT COUNT(*) as count FROM user_roles WHERE role_id = $1',

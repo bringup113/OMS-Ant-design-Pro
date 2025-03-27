@@ -14,19 +14,18 @@ export interface CustomerFormData {
   passportNo: string;
   gender: string;
   country: string;
-  birthDate: number | null;
-  issueDate: number | null;
-  expiryDate: number | null;
+  birthDate: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
 }
 
 export interface VisaFormData {
   id?: number;
   customerId: number;
   country: string;
-  visaType: string;
   visaName: string;
-  issueDate: number | null;
-  expiryDate: number | null;
+  issueDate: string | null;
+  expiryDate: string | null;
 }
 
 // 获取客户列表
@@ -83,17 +82,33 @@ export async function createVisa(data: VisaFormData) {
 }
 
 // 批量创建签证信息
-export async function batchCreateVisas(customerId: number, visas: Omit<VisaFormData, 'customerId'>[]) {
-  return request(`/api/customers/${customerId}/visas/batch`, {
-    method: 'POST',
-    data: visas,
+export async function batchCreateVisas(customerId: number, visas: Omit<VisaFormData, 'customerId'>[], options?: {[key: string]: any}) {
+  console.log(`客户端 - 批量创建签证请求`, {
+    customerId,
+    visaCount: visas.length,
+    visaData: visas,
+    options
   });
+  
+  try {
+    const response = await request(`/api/customers/${customerId}/visas/batch`, {
+      method: 'POST',
+      data: visas,
+      ...(options || {}),
+    });
+    
+    console.log(`客户端 - 批量创建签证响应:`, response);
+    return response;
+  } catch (error) {
+    console.error(`客户端 - 批量创建签证错误:`, error);
+    throw error;
+  }
 }
 
 // 更新签证信息
 export async function updateVisa(id: number, data: Omit<VisaFormData, 'customerId'>) {
   return request(`/api/visas/${id}`, {
-    method: 'PUT',
+    method: 'PATCH',
     data,
   });
 }

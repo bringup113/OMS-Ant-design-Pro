@@ -100,6 +100,19 @@ const useStyles = createStyles(({ token }) => {
       '> span': { lineHeight: '20px' },
       '> p': { marginTop: '4px', marginBottom: '0', lineHeight: '22px' },
     },
+    extraContent: {
+      display: 'flex',
+      alignItems: 'center',
+      [`@media screen and (max-width: ${token.screenMD}px)`]: {
+        display: 'block',
+        '.ant-radio-group': {
+          marginBottom: '8px',
+        },
+        'button': {
+          margin: '8px 0 !important',
+        }
+      },
+    },
     extraContentSearch: {
       width: '272px',
       marginLeft: '16px',

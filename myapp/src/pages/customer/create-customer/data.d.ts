@@ -16,4 +16,12 @@ export interface VisaDataType {
   expiryDate: any;
 }
 
+export interface VisaFormProps {
+  customerId?: number;
+  customerName?: string;
+  passportNo?: string;
+  onSave: (visas: VisaDataType[]) => Promise<boolean>;
+  loading: boolean;
+}
+
 export type CurrentTypes = 'base' | 'visa' | 'result';

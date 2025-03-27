@@ -81,6 +81,7 @@ export default defineConfig({
   layout: {
     locale: true,
     ...defaultSettings,
+    showSettingDrawer: false,
   },
   /**
    * @name moment2dayjs 插件
@@ -149,9 +150,6 @@ export default defineConfig({
       projectName: 'swagger',
     },
   ],
-  mock: {
-    include: ['mock/**/*', 'src/pages/**/_mock.ts'],
-  },
   mfsu: {
     strategy: 'normal',
   },

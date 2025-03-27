@@ -3,20 +3,53 @@ import { createStyles } from 'antd-style';
 const useStyles = createStyles(({ token }) => {
   return {
     standardList: {
-      '.ant-card-head': { borderBottom: 'none' },
-      '.ant-card-head-title': { padding: '24px 0', lineHeight: '32px' },
-      '.ant-card-extra': { padding: '24px 0' },
-      '.ant-list-pagination': { marginTop: '24px', textAlign: 'right' },
-      '.ant-avatar-lg': { width: '48px', height: '48px', lineHeight: '48px' },
-      [`@media screen and (max-width: ${token.screenXS}px)`]: {
-        '.ant-list-item-content': {
-          display: 'block',
-          flex: 'none',
-          width: '100%',
-        },
-        '.ant-list-item-action': {
-          marginLeft: '0',
-        },
+      '.ant-card-head': {
+        borderBottom: 'none',
+      },
+      '.ant-card-head-title': {
+        padding: '24px 0',
+        lineHeight: '32px',
+      },
+      '.ant-card-extra': {
+        padding: '24px 0',
+      },
+      '.ant-list-pagination': {
+        marginTop: '24px',
+      },
+      '.ant-list-item-action': {
+        marginLeft: '48px',
+        padding: 0,
+        lineHeight: '1.5',
+      },
+      '.ant-list-item-action-split': {
+        display: 'none',
+      },
+      '.ant-list-item-meta-title': {
+        marginBottom: '12px',
+        fontSize: '0',
+        '& > a': { color: token.colorTextHeading, fontSize: '16px', lineHeight: '24px' },
+      },
+      '.ant-list-item-meta-description': {
+        color: token.colorTextSecondary,
+      },
+      '.ant-card-actions': {
+        background: token.colorBgContainer,
+      },
+      extraContent: {
+        float: 'right',
+        marginTop: 16,
+        marginRight: 0,
+        textAlign: 'right',
+      },
+      extraContentSearch: {
+        width: 240,
+        marginLeft: 16,
+      },
+      tableList: {
+        marginTop: 16,
+      },
+      tableListOperator: {
+        margin: '16px 0',
       },
     },
     headerInfo: {
@@ -30,7 +63,7 @@ const useStyles = createStyles(({ token }) => {
         lineHeight: '22px',
       },
       '& > p': {
-        margin: '0',
+        margin: 0,
         color: token.colorTextHeading,
         fontSize: '24px',
         lineHeight: '32px',
@@ -43,43 +76,33 @@ const useStyles = createStyles(({ token }) => {
         height: '56px',
         backgroundColor: token.colorSplit,
       },
-      [`@media screen and (max-width: ${token.screenSM}px)`]: {
-        marginBottom: '16px',
-        '& > em': {
-          display: 'none',
-        },
-      },
     },
     listContent: {
-      fontSize: '0',
-      [`@media screen and (max-width: ${token.screenXS}px)`]: {
+      display: 'flex',
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      marginLeft: '24px',
+      '@media screen and (max-width: 768px)': {
+        marginLeft: '0',
+        '& > div:first-child': {
+          top: '0',
+        },
+      },
+      '@media screen and (max-width: 576px)': {
+        display: 'block',
         marginLeft: '0',
         '& > div': {
           marginLeft: '0',
         },
       },
-      [`@media screen and (max-width: ${token.screenMD}px)`]: {
+      '@media screen and (max-width: 480px)': {
+        marginLeft: '0',
         '& > div': {
-          display: 'block',
-        },
-        '& > div:last-child': {
-          top: '0',
-          width: '100%',
+          marginLeft: '0',
         },
       },
-      [`@media screen and (max-width: ${token.screenLG}px) and (min-width: @screen-md)`]: {
-        '& > div': {
-          display: 'block',
-        },
-        '& > div:last-child': {
-          top: '0',
-          width: '100%',
-        },
-      },
-      [`@media screen and (max-width: ${token.screenXL}px)`]: {
-        '& > div': {
-          marginLeft: '24px',
-        },
+      '@media screen and (max-width: 400px)': {
+        textAlign: 'left',
         '& > div:last-child': {
           top: '0',
         },
@@ -100,18 +123,10 @@ const useStyles = createStyles(({ token }) => {
       '> span': { lineHeight: '20px' },
       '> p': { marginTop: '4px', marginBottom: '0', lineHeight: '22px' },
     },
-    extraContentSearch: {
-      width: '272px',
-      marginLeft: '16px',
-      [`@media screen and (max-width: ${token.screenSM}px)`]: {
-        width: '100%',
-        marginLeft: '0',
-      },
-    },
     listCard: {
       [`@media screen and (max-width: ${token.screenXS}px)`]: {
         '.ant-card-head-title': {
-          overflow: 'open',
+          overflow: 'visible',
         },
       },
       [`@media screen and (max-width: ${token.screenMD}px)`]: {

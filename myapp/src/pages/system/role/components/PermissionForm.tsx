@@ -58,6 +58,14 @@ const PermissionForm: React.FC<PermissionFormProps> = (props) => {
             { label: '删除', value: 'role:delete' },
           ],
         },
+        {
+          title: '样式设置',
+          key: 'system.bill-style',
+          functions: [
+            { label: '查询', value: 'bill-style:query' },
+            { label: '编辑', value: 'bill-style:edit' },
+          ],
+        },
       ],
     },
     {
@@ -116,14 +124,6 @@ const PermissionForm: React.FC<PermissionFormProps> = (props) => {
             { label: '新增', value: 'product:add' },
             { label: '编辑', value: 'product:edit' },
             { label: '删除', value: 'product:delete' },
-          ],
-        },
-        {
-          title: '产品报价',
-          key: 'product.price',
-          functions: [
-            { label: '查询', value: 'product-price:query' },
-            { label: '设置', value: 'product-price:set' },
           ],
         },
       ],

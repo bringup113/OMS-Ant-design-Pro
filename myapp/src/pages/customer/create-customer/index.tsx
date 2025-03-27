@@ -6,8 +6,6 @@ import {
   ProFormSelect,
   ProFormText,
   StepsForm,
-  EditableProTable,
-  ProColumns,
   ProFormRadio,
   ProFormTextArea,
   ProCard,
@@ -21,7 +19,8 @@ import moment from 'moment';
 import dayjs from 'dayjs';
 import { history, request, useRequest } from '@umijs/max';
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
-import { createCustomer } from '@/services/system/customer';
+import { createCustomer, batchCreateVisas } from '@/services/system/customer';
+import VisaForm from './components/VisaForm';
 
 const { Text } = Typography;
 
@@ -32,7 +31,7 @@ const StepDescriptions: React.FC<{
 }> = ({ stepData, bordered, column }) => {
   const { passportNo, name, gender, country, birthDate, issueDate, expiryDate } = stepData;
   return (
-    <Descriptions column={column || 1} bordered={bordered}>
+    <Descriptions column={column || 1} bordered={bordered} style={{ width: '100%' }}>
       <Descriptions.Item label="护照号码">{passportNo}</Descriptions.Item>
       <Descriptions.Item label="客户姓名">{name}</Descriptions.Item>
       <Descriptions.Item label="性别">{gender === 'male' ? '男' : '女'}</Descriptions.Item>
@@ -82,74 +81,8 @@ const CreateCustomer: React.FC = () => {
   });
   const [current, setCurrent] = useState(0);
   const formRef = useRef<FormInstance>();
-  
-  // 签证信息表格相关状态
-  const defaultRowKey = Date.now();
-  const [editableKeys, setEditableRowKeys] = useState<React.Key[]>([defaultRowKey]);
-  const [visaDataSource, setVisaDataSource] = useState<VisaDataType[]>([
-    {
-      id: defaultRowKey,
-      country: '',
-      visaName: '',
-      issueDate: null,
-      expiryDate: null,
-    }
-  ]);
   const [saving, setSaving] = useState<boolean>(false);
-  const [currentStep, setCurrentStep] = useState<number>(0);
   
-  // 签证信息表格列定义
-  const visaColumns: ProColumns<VisaDataType>[] = [
-    {
-      title: '国家',
-      dataIndex: 'country',
-      valueType: 'text',
-      formItemProps: {
-        rules: [{ required: true, message: '此项为必填项' }],
-      },
-    },
-    {
-      title: '签证名称',
-      dataIndex: 'visaName',
-      valueType: 'text',
-      formItemProps: {
-        rules: [{ required: true, message: '此项为必填项' }],
-      },
-    },
-    {
-      title: '签发日期',
-      dataIndex: 'issueDate',
-      valueType: 'date',
-    },
-    {
-      title: '到期日期',
-      dataIndex: 'expiryDate',
-      valueType: 'date',
-    },
-    {
-      title: '操作',
-      valueType: 'option',
-      render: (_: any, record: VisaDataType, __: any, action: any) => [
-        <a
-          key="editable"
-          onClick={() => {
-            action?.startEditable?.(record.id);
-          }}
-        >
-          编辑
-        </a>,
-        <a
-          key="delete"
-          onClick={() => {
-            setVisaDataSource(visaDataSource.filter((item) => item.id !== record.id));
-          }}
-        >
-          删除
-        </a>,
-      ],
-    },
-  ];
-
   // 保存客户基本信息并返回
   const saveCustomerAndReturn = async () => {
     try {
@@ -185,9 +118,21 @@ const CreateCustomer: React.FC = () => {
   };
 
   // 保存客户基本信息和签证信息
-  const saveCustomerAndVisas = async () => {
+  const saveCustomerAndVisas = async (visaData: VisaDataType[]) => {
     try {
-      // 先提交基本信息，获取客户ID
+      setSaving(true);
+      console.log('开始保存客户和签证信息');
+      
+      // 验证签证数据
+      if (!visaData || visaData.length === 0) {
+        message.warning('请至少添加一条有效的签证信息');
+        setSaving(false);
+        return false;
+      }
+      
+      console.log('接收到的签证数据:', visaData);
+      
+      // 提交客户基本信息
       const customerData = {
         name: stepData.name,
         passportNo: stepData.passportNo,
@@ -198,54 +143,74 @@ const CreateCustomer: React.FC = () => {
         expiryDate: stepData.expiryDate ? dayjs(stepData.expiryDate).format('YYYY-MM-DD') : null,
       };
       
-      const customerResponse = await request('/api/customers', {
-        method: 'POST',
-        data: customerData,
-      });
+      console.log('提交客户数据:', customerData);
+      const customerResponse = await createCustomer(customerData);
+      console.log('客户创建响应:', customerResponse);
       
       if (customerResponse.success && customerResponse.data) {
         const customerId = customerResponse.data.id;
+        console.log('获取到客户ID:', customerId);
         
-        // 提交签证信息
-        const visaData = visaDataSource.filter(item => item.country && item.visaName).map(item => ({
-          customerId,
+        // 格式化签证数据
+        const formattedVisaData = visaData.map(item => ({
           country: item.country,
           visaName: item.visaName,
           issueDate: item.issueDate ? dayjs(item.issueDate).format('YYYY-MM-DD') : null,
           expiryDate: item.expiryDate ? dayjs(item.expiryDate).format('YYYY-MM-DD') : null,
         }));
         
-        if (visaData.length > 0) {
-          await request(`/api/customers/${customerId}/visas/batch`, {
+        console.log('准备提交的签证数据:', formattedVisaData);
+        
+        try {
+          // 直接使用fetch API提交数据
+          const token = localStorage.getItem('token');
+          const response = await fetch(`/api/customers/${customerId}/visas/batch`, {
             method: 'POST',
-            data: visaData,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': token ? `Bearer ${token}` : '',
+            },
+            body: JSON.stringify(formattedVisaData),
           });
+          
+          const visaResponse = await response.json();
+          console.log('签证创建响应:', visaResponse);
+          
+          if (visaResponse.success) {
+            message.success('客户和签证信息创建成功');
+          } else {
+            console.error('签证保存失败:', visaResponse);
+            message.warning('客户创建成功，但签证信息保存失败');
+          }
+        } catch (error) {
+          console.error('签证提交失败:', error);
+          message.warning('客户创建成功，但签证信息保存失败');
         }
         
-        message.success('客户创建成功');
+        setSaving(false);
         setCurrent(2);
         return true;
       } else {
+        console.error('客户创建失败:', customerResponse);
         message.error('客户创建失败');
+        setSaving(false);
         return false;
       }
     } catch (error) {
+      console.error('操作失败:', error);
       message.error('操作失败');
+      setSaving(false);
       return false;
     }
   };
 
   return (
     <PageContainer content="填写客户的护照信息，完成基本信息的建档。也可以快速添加多个签证信息与订单信息。">
-      <Card variant="borderless">
+      <Card variant="borderless" styles={{ body: {} }}>
         <StepsForm
           current={current}
           onCurrentChange={(newCurrent) => {
             setCurrent(newCurrent);
-            // 进入第二步时，确保默认行处于编辑状态
-            if (newCurrent === 1 && visaDataSource.length > 0) {
-              setEditableRowKeys(visaDataSource.map(item => item.id));
-            }
           }}
           submitter={{
             render: (props) => {
@@ -259,14 +224,6 @@ const CreateCustomer: React.FC = () => {
                       保存返回
                     </Button>
                   </Space>
-                );
-              }
-              
-              if (props.step === 1) {
-                return (
-                  <Button type="primary" onClick={saveCustomerAndVisas}>
-                    保存
-                  </Button>
                 );
               }
               
@@ -379,48 +336,12 @@ const CreateCustomer: React.FC = () => {
             name="visa"
             title="签证信息"
           >
-            <div style={{ marginBottom: 24 }}>
-              <Space direction="vertical" size="large" style={{ display: 'flex' }}>
-                <div>
-                  <Text strong style={{ fontSize: 30 }}>{stepData.name}</Text>
-                  <Text type="secondary" style={{ marginLeft: 8, fontSize: 14 }}>{stepData.passportNo}</Text>
-                </div>
-                <Alert
-                  message="请填写客户的签证信息，可以添加多个签证记录。"
-                  type="info"
-                  showIcon
-                />
-                <EditableProTable<VisaDataType>
-                  rowKey="id"
-                  headerTitle="签证信息"
-                  maxLength={10}
-                  columns={visaColumns}
-                  recordCreatorProps={{
-                    newRecordType: 'dataSource',
-                    record: () => ({
-                      id: Date.now(),
-                      country: '',
-                      visaName: '',
-                      issueDate: null,
-                      expiryDate: null,
-                    }),
-                    creatorButtonText: '添加签证信息',
-                  }}
-                  value={visaDataSource}
-                  onChange={(value) => {
-                    setVisaDataSource(value as VisaDataType[]);
-                  }}
-                  editable={{
-                    type: 'multiple',
-                    editableKeys,
-                    onChange: setEditableRowKeys,
-                    actionRender: (row, config, defaultDoms) => {
-                      return [defaultDoms.delete];
-                    },
-                  }}
-                />
-              </Space>
-            </div>
+            <VisaForm 
+              customerName={stepData.name}
+              passportNo={stepData.passportNo}
+              onSave={saveCustomerAndVisas}
+              loading={saving}
+            />
           </StepsForm.StepForm>
 
           <StepsForm.StepForm
@@ -431,17 +352,6 @@ const CreateCustomer: React.FC = () => {
               onFinish={async () => {
                 setCurrent(0);
                 formRef.current?.resetFields();
-                const newDefaultRowKey = Date.now();
-                setVisaDataSource([
-                  {
-                    id: newDefaultRowKey,
-                    country: '',
-                    visaName: '',
-                    issueDate: null,
-                    expiryDate: null,
-                  }
-                ]);
-                setEditableRowKeys([newDefaultRowKey]);
               }}
             >
               {/* 卡片内容已移除 */}

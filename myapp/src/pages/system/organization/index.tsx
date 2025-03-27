@@ -7,95 +7,238 @@ import {
   ProTable,
 } from '@ant-design/pro-components';
 import { FormattedMessage, useIntl } from '@umijs/max';
-import { Button, Drawer, message, Popconfirm } from 'antd';
-import React, { useRef, useState } from 'react';
+import { Button, Drawer, App, Popconfirm, Tag, Space } from 'antd';
+import React, { useRef, useState, useEffect } from 'react';
 import UpdateForm from './components/UpdateForm';
-// @ts-ignore
-import { addOrg, removeOrg, updateOrg, getOrgs } from './service';
+import { addOrganization, removeOrganization, updateOrganization, getOrganizations } from '@/services/system/organization';
+import dayjs from 'dayjs';
 
-/**
- * 添加机构
- * @param fields
- */
-const handleAdd = async (fields: API.OrganizationListItem) => {
-  const hide = message.loading('正在添加');
-  try {
-    await addOrg({ ...fields });
-    hide();
-    message.success('添加成功');
-    return true;
-  } catch (error) {
-    hide();
-    message.error('添加失败，请重试');
-    return false;
-  }
-};
-
-/**
- * 更新机构
- * @param fields
- */
-const handleUpdate = async (fields: API.OrganizationListItem) => {
-  const hide = message.loading('正在更新');
-  try {
-    await updateOrg(fields);
-    hide();
-    message.success('更新成功');
-    return true;
-  } catch (error) {
-    hide();
-    message.error('更新失败，请重试');
-    return false;
-  }
-};
-
-/**
- * 删除机构
- * @param selectedRows
- */
-const handleRemove = async (selectedRows: API.OrganizationListItem[]) => {
-  const hide = message.loading('正在删除');
-  if (!selectedRows) return true;
-  try {
-    await removeOrg({
-      key: selectedRows.map((row) => row.key as string),
-    });
-    hide();
-    message.success('删除成功');
-    return true;
-  } catch (error: any) {
-    hide();
-    // 显示后端返回的详细错误信息
-    if (error.response && error.response.data && error.response.data.message) {
-      message.error(error.response.data.message);
-    } else {
-      message.error('删除失败，请重试');
-    }
-    // 向上抛出一个已处理的错误对象，但不包含原始错误信息，避免重复显示错误
-    throw new Error('ERROR_ALREADY_HANDLED');
+const getCooperationTypeText = (type: string | undefined) => {
+  switch (type) {
+    case 'no_commission':
+      return '不分佣';
+    case 'normal_trade':
+      return '普通贸易';
+    case 'profit_commission':
+      return '利润分佣';
+    default:
+      return '-';
   }
 };
 
 const OrganizationList: React.FC = () => {
-  /**
-   * 更新窗口的弹窗
-   * */
-  const [updateModalVisible, handleUpdateModalVisible] = useState<boolean>(false);
+  const { message, modal } = App.useApp();
+  const intl = useIntl();
 
+  const [updateModalVisible, setUpdateModalVisible] = useState<boolean>(false);
   const [showDetail, setShowDetail] = useState<boolean>(false);
+  const [showEdit, setShowEdit] = useState<boolean>(false);
 
   const actionRef = useRef<ActionType>();
   const [currentRow, setCurrentRow] = useState<API.OrganizationListItem>();
   const [selectedRowsState, setSelectedRows] = useState<API.OrganizationListItem[]>([]);
+  const [orgTreeData, setOrgTreeData] = useState<any[]>([]);
+  const [expandedRowKeys, setExpandedRowKeys] = useState<number[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
 
   /**
-   * 国际化配置
-   * */
-  const intl = useIntl();
+   * 添加机构
+   */
+  const handleAdd = async (fields: API.FormValueType) => {
+    const hide = message.loading('正在添加');
+    try {
+      await addOrganization(fields);
+      hide();
+      message.success('添加成功');
+      return true;
+    } catch (error) {
+      hide();
+      message.error('添加失败，请重试');
+      return false;
+    }
+  };
+
+  /**
+   * 更新机构
+   */
+  const handleUpdate = async (fields: API.FormValueType & { id: number }) => {
+    const hide = message.loading('正在更新');
+    try {
+      // 确保利润分佣时有佣金比例字段
+      if (fields.cooperation_type === 'profit_commission' && fields.commission_rate === undefined) {
+        console.log('利润分佣机构，但未包含佣金比例数据，设置默认值');
+        fields.commission_rate = 0;
+      }
+      
+      console.log('更新机构请求数据:', fields);
+      await updateOrganization(fields.id, fields);
+      hide();
+      message.success('更新成功');
+      return true;
+    } catch (error) {
+      hide();
+      message.error('更新失败，请重试');
+      return false;
+    }
+  };
+
+  /**
+   * 删除机构
+   */
+  const handleRemove = async (selectedRows: API.OrganizationListItem[]) => {
+    const hide = message.loading('正在删除');
+    
+    if (!selectedRows?.length) return true;
+    
+    try {
+      // 检查是否包含受保护的机构
+      const protectedOrgs = selectedRows.filter(row => row.id === 1 || row.id === 2);
+      if (protectedOrgs.length > 0) {
+        hide();
+        message.error('无法删除受保护的机构');
+        return false;
+      }
+      
+      // 检查是否为供应商机构
+      const supplierOrgs = selectedRows.filter(row => row.type === 'supplier');
+      if (supplierOrgs.length > 0) {
+        // 获取所有机构数据
+        const result = await getOrganizations({});
+        const allOrgs = result.data || [];
+        
+        // 检查每个要删除的供应商是否有下属机构
+        for (const supplier of supplierOrgs) {
+          const hasChildren = allOrgs.some(org => org.parentId === supplier.id);
+          if (hasChildren) {
+            hide();
+            message.error(`供应商"${supplier.name}"还有下属机构，请先删除其下属机构`);
+            return false;
+          }
+        }
+      }
+      
+      // 逐个删除机构，以便更好地处理错误
+      for (const row of selectedRows) {
+        try {
+          await removeOrganization(row.id);
+        } catch (error: any) {
+          hide();
+          console.error('删除机构失败:', error);
+          
+          // 尝试获取详细的错误信息
+          let errorMessage = '删除失败，请重试';
+          
+          // 检查是否是外键约束错误
+          if (error.response?.data?.code === '23503' && 
+              error.response?.data?.constraint === 'fk_order_businesses_supplier') {
+            errorMessage = `机构"${row.name}"已有关联的订单业务，无法删除`;
+          } else if (error.response?.data?.message) {
+            errorMessage = error.response.data.message;
+          } else if (error.response?.data?.error) {
+            errorMessage = error.response.data.error;
+          } else if (error.message) {
+            errorMessage = error.message;
+          }
+          
+          message.error(errorMessage);
+          return false;
+        }
+      }
+      
+      hide();
+      message.success('删除成功');
+      return true;
+    } catch (error: any) {
+      hide();
+      console.error('删除机构失败:', error);
+      
+      // 尝试获取详细的错误信息
+      let errorMessage = '删除失败，请重试';
+      
+      // 检查是否是外键约束错误
+      if (error.response?.data?.code === '23503' && 
+          error.response?.data?.constraint === 'fk_order_businesses_supplier') {
+        errorMessage = '该机构已有关联的订单业务，无法删除';
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      message.error(errorMessage);
+      return false;
+    }
+  };
+
+  // 获取机构树数据
+  useEffect(() => {
+    const fetchOrgTree = async () => {
+      try {
+        const result = await getOrganizations({});
+        const responseData = result.data || [];
+        
+        // 构建树形结构
+        const buildTree = (items: API.Organization[], parentId: number | null = null): any[] => {
+          return items
+            .filter(item => item.parentId === parentId)
+            .map(item => ({
+              title: item.name,
+              value: item.id,
+              key: item.id,
+              children: buildTree(items, item.id),
+            }));
+        };
+        
+        setOrgTreeData(buildTree(responseData));
+      } catch (error) {
+        console.error('获取机构树数据失败:', error);
+        message.error('获取机构树数据失败');
+      }
+    };
+    
+    fetchOrgTree();
+  }, []);
+
+  // 在数据加载完成后自动展开所有行
+  useEffect(() => {
+    if (actionRef.current) {
+      const fetchAndExpandAll = async () => {
+        setLoading(true);
+        try {
+          const result = await getOrganizations({});
+          const responseData = result.data || [];
+          
+          // 获取所有节点的ID，用于默认展开
+          const allKeys = getAllKeys(responseData);
+          setExpandedRowKeys(allKeys);
+        } catch (error) {
+          console.error('获取机构数据失败:', error);
+          message.error('获取机构数据失败');
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      fetchAndExpandAll();
+    }
+  }, []);
+
+  // 获取所有节点的ID，用于默认展开
+  const getAllKeys = (data: API.Organization[]): number[] => {
+    let keys: number[] = [];
+    data.forEach(item => {
+      if (item.id) {
+        keys.push(item.id);
+      }
+    });
+    return keys;
+  };
 
   const columns: ProColumns<API.OrganizationListItem>[] = [
     {
-      title: '机构名称',
+      title: intl.formatMessage({ id: 'pages.organization.name', defaultMessage: '机构名称' }),
       dataIndex: 'name',
       valueType: 'text',
       render: (dom, entity) => {
@@ -112,78 +255,76 @@ const OrganizationList: React.FC = () => {
       },
     },
     {
-      title: '机构代码',
+      title: intl.formatMessage({ id: 'pages.organization.code', defaultMessage: '机构编码' }),
       dataIndex: 'code',
       valueType: 'text',
     },
     {
-      title: '上级机构',
-      dataIndex: 'parentName',
+      title: intl.formatMessage({ id: 'pages.organization.type', defaultMessage: '机构类型' }),
+      dataIndex: 'type',
       valueType: 'text',
-      hideInTable: true,
+      render: (_, record) => (
+        <Tag color={record.type === 'supplier' ? 'blue' : 'green'}>
+          {record.type === 'supplier' ? '供应商' : '客户'}
+        </Tag>
+      ),
     },
     {
-      title: '排序',
-      dataIndex: 'sort',
-      valueType: 'digit',
-      sorter: true,
+      title: intl.formatMessage({ id: 'pages.organization.cooperation_type', defaultMessage: '合作方式' }),
+      dataIndex: 'cooperation_type',
+      valueType: 'text',
+      render: (_, record) => getCooperationTypeText(record.cooperation_type),
     },
     {
-      title: '状态',
+      title: intl.formatMessage({ id: 'pages.organization.status', defaultMessage: '状态' }),
       dataIndex: 'status',
-      hideInForm: true,
-      valueEnum: {
-        '0': {
-          text: '禁用',
-          status: 'error',
-        },
-        '1': {
-          text: '启用',
-          status: 'success',
-        },
-      },
+      valueType: 'text',
+      render: (_, record) => (
+        <Tag color={record.status === '1' ? 'success' : 'error'}>
+          {record.status === '1' ? '启用' : '禁用'}
+        </Tag>
+      ),
     },
     {
-      title: '创建时间',
-      sorter: true,
+      title: intl.formatMessage({ id: 'pages.organization.created_at', defaultMessage: '创建时间' }),
       dataIndex: 'createdAt',
       valueType: 'dateTime',
+      render: (_, record) => record.createdAt ? dayjs(record.createdAt).format('YYYY-MM-DD HH:mm:ss') : '-',
     },
     {
-      title: <FormattedMessage id="pages.searchTable.titleOption" defaultMessage="操作" />,
+      title: intl.formatMessage({ id: 'pages.organization.updated_at', defaultMessage: '更新时间' }),
+      dataIndex: 'updatedAt',
+      valueType: 'dateTime',
+      render: (_, record) => record.updatedAt ? dayjs(record.updatedAt).format('YYYY-MM-DD HH:mm:ss') : '-',
+    },
+    {
+      title: intl.formatMessage({ id: 'pages.searchTable.titleOption', defaultMessage: '操作' }),
       dataIndex: 'option',
       valueType: 'option',
       render: (_, record) => [
         <a
-          key="config"
+          key="edit"
           onClick={() => {
-            handleUpdateModalVisible(true);
             setCurrentRow(record);
+            setShowEdit(true);
           }}
         >
-          <FormattedMessage id="pages.searchTable.config" defaultMessage="编辑" />
+          编辑
         </a>,
-        <Popconfirm
-          key="delete"
-          title="确定要删除此机构吗？"
-          onConfirm={async () => {
-            try {
-              await handleRemove([record]);
-              actionRef.current?.reload();
-            } catch (error: any) {
-              // 错误已在 handleRemove 中处理，这里不再显示错误信息
-              if (error.message !== 'ERROR_ALREADY_HANDLED') {
-                console.error('未处理的错误:', error);
+        record.id !== 1 && record.id !== 2 && (
+          <Popconfirm
+            key="delete"
+            title="确定要删除这个机构吗？"
+            onConfirm={async () => {
+              const success = await handleRemove([record]);
+              if (success) {
+                actionRef.current?.reload();
               }
-            }
-          }}
-          okText="确定"
-          cancelText="取消"
-        >
-          <a key="delete" style={{ color: 'red' }}>
-            删除
-          </a>
-        </Popconfirm>,
+            }}
+          >
+            <a>删除</a>
+          </Popconfirm>
+        ),
       ],
     },
   ];
@@ -191,58 +332,41 @@ const OrganizationList: React.FC = () => {
   return (
     <PageContainer>
       <ProTable<API.OrganizationListItem, API.PageParams>
-        headerTitle="机构列表"
+        headerTitle={intl.formatMessage({
+          id: 'pages.organization.title',
+          defaultMessage: '机构列表',
+        })}
         actionRef={actionRef}
-        rowKey="key"
-        search={{
-          labelWidth: 120,
-        }}
+        rowKey="id"
+        search={false}
         toolBarRender={() => [
           <Button
             type="primary"
             key="primary"
             onClick={() => {
-              handleUpdateModalVisible(true);
               setCurrentRow(undefined);
+              setShowEdit(true);
             }}
           >
-            <PlusOutlined /> <FormattedMessage id="pages.searchTable.new" defaultMessage="新建" />
+            <PlusOutlined /> 新建
           </Button>,
         ]}
         request={async (params) => {
-          const result = await getOrgs(params);
-          
-          // 确保从API响应中正确提取数据
-          const responseData = result.data || [];
-          
-          // 判断是否在进行搜索
-          const isSearching = Object.keys(params).some(key => 
-            ['name', 'code', 'status'].includes(key) && params[key as keyof typeof params]
-          );
-          
-          if (isSearching) {
-            // 搜索时不使用树形结构，直接返回扁平数据
+          try {
+            const response = await getOrganizations(params);
+            console.log('获取到的机构数据:', response);
             return {
-              data: responseData,
-              total: (result as any).total || responseData.length,
-              success: (result as any).success !== false,
+              data: response.data || [],
+              success: true,
+              total: response.total || 0,
             };
-          } else {
-            // 非搜索状态下，构建树形结构
-            const buildTree = (items: API.OrganizationListItem[], parentId: string = '0'): API.OrganizationListItem[] => {
-              return items
-                .filter(item => item.parentId === parentId)
-                .map(item => ({
-                  ...item,
-                  children: buildTree(items, item.id),
-                }));
-            };
-            
-            const treeData = buildTree(responseData);
+          } catch (error) {
+            console.error('获取机构数据失败:', error);
+            message.error('获取机构数据失败');
             return {
-              data: treeData,
-              total: (result as any).total || responseData.length,
-              success: (result as any).success !== false,
+              data: [],
+              success: false,
+              total: 0,
             };
           }
         }}
@@ -252,47 +376,55 @@ const OrganizationList: React.FC = () => {
             setSelectedRows(selectedRows);
           },
         }}
+        expandable={{
+          expandedRowKeys,
+          onExpandedRowsChange: (keys) => setExpandedRowKeys(keys as number[]),
+        }}
+        loading={loading}
       />
       {selectedRowsState?.length > 0 && (
         <FooterToolbar
           extra={
             <div>
-              <FormattedMessage id="pages.searchTable.chosen" defaultMessage="已选择" />{' '}
+              已选择{' '}
               <a style={{ fontWeight: 600 }}>{selectedRowsState.length}</a>{' '}
-              <FormattedMessage id="pages.searchTable.item" defaultMessage="项" />
+              项
             </div>
           }
         >
-          <Button
-            onClick={async () => {
-              try {
-                await handleRemove(selectedRowsState);
+          <Popconfirm
+            title="确定要删除选中的机构吗？"
+            onConfirm={async () => {
+              const success = await handleRemove(selectedRowsState);
+              if (success) {
                 setSelectedRows([]);
                 actionRef.current?.reload();
-              } catch (error: any) {
-                // 错误已在 handleRemove 中处理，这里不再显示错误信息
-                if (error.message !== 'ERROR_ALREADY_HANDLED') {
-                  console.error('未处理的错误:', error);
-                }
               }
             }}
           >
-            <FormattedMessage id="pages.searchTable.batchDeletion" defaultMessage="批量删除" />
-          </Button>
+            <Button>批量删除</Button>
+          </Popconfirm>
         </FooterToolbar>
       )}
-
       <UpdateForm
         onSubmit={async (value) => {
           let success;
           if (currentRow?.id) {
-            success = await handleUpdate({ ...currentRow, ...value });
+            // 确保包含佣金比例字段
+            if (value.cooperation_type === 'profit_commission' && value.commission_rate === undefined) {
+              console.log('利润分佣，设置默认佣金比例');
+              value.commission_rate = 0;
+            }
+            // 合并ID字段
+            const updateData = { ...value, id: currentRow.id };
+            console.log('提交更新数据:', updateData);
+            success = await handleUpdate(updateData);
           } else {
-            success = await handleAdd({ ...value } as API.OrganizationListItem);
+            success = await handleAdd(value);
           }
 
           if (success) {
-            handleUpdateModalVisible(false);
+            setShowEdit(false);
             setCurrentRow(undefined);
             if (actionRef.current) {
               actionRef.current.reload();
@@ -301,10 +433,10 @@ const OrganizationList: React.FC = () => {
           return success;
         }}
         onCancel={() => {
-          handleUpdateModalVisible(false);
+          setShowEdit(false);
           setCurrentRow(undefined);
         }}
-        updateModalVisible={updateModalVisible}
+        updateModalVisible={showEdit}
         values={currentRow || {}}
       />
 

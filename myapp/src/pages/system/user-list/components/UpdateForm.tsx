@@ -4,9 +4,10 @@ import {
   ProFormTextArea,
   ProForm,
   ProFormRadio,
+  ProFormTreeSelect,
 } from '@ant-design/pro-components';
 import { FormattedMessage, useIntl, request } from '@umijs/max';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Upload, Button, message, Typography, Spin, Divider } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 
@@ -18,7 +19,6 @@ export type FormValueType = {
   name?: string;
   email?: string;
   organization?: string;
-  role?: string;
   status?: string;
   avatar?: string;
   profile?: string;
@@ -31,27 +31,6 @@ export type UpdateFormProps = {
   values: Partial<any>;
 };
 
-// 获取角色列表的API
-const fetchRolesByOrg = async (orgCode: string) => {
-  try {
-    const response = await request('/api/roles', {
-      method: 'GET',
-      params: { organization: orgCode }
-    });
-    
-    if (response && response.data) {
-      return response.data.map((role: any) => ({
-        label: role.name,
-        value: role.code
-      }));
-    }
-    return [];
-  } catch (error) {
-    console.error('获取角色列表失败:', error);
-    return [];
-  }
-};
-
 const UpdateForm: React.FC<UpdateFormProps> = (props) => {
   const intl = useIntl();
   
@@ -59,39 +38,11 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
   const [avatarUrl, setAvatarUrl] = React.useState<string>(props.values.avatar || '');
   // 当前选择的机构
   const [selectedOrg, setSelectedOrg] = useState<string>(props.values.organization || '');
-  // 可用角色列表
-  const [availableRoles, setAvailableRoles] = useState<Array<{label: string, value: string}>>([]);
   // 加载状态
   const [loading, setLoading] = useState<boolean>(false);
-  // 当前选择的角色
-  const [selectedRole, setSelectedRole] = useState<string>(props.values.role || '');
   
-  // 当机构变化时，获取可用角色
-  useEffect(() => {
-    const loadRoles = async () => {
-      if (selectedOrg) {
-        setLoading(true);
-        try {
-          const roles = await fetchRolesByOrg(selectedOrg);
-          setAvailableRoles(roles);
-          
-          // 如果当前选择的角色不在新的角色列表中，清空选择
-          if (selectedRole && !roles.some((r: {value: string}) => r.value === selectedRole)) {
-            setSelectedRole('');
-          }
-        } catch (error) {
-          message.error('获取角色列表失败');
-          setAvailableRoles([]);
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        setAvailableRoles([]);
-      }
-    };
-    
-    loadRoles();
-  }, [selectedOrg]);
+  // 创建表单引用
+  const formRef = useRef<any>();
   
   const handleAvatarChange = (info: any) => {
     if (info.file.status === 'done') {
@@ -134,6 +85,7 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
   
   return (
     <ProForm
+      formRef={formRef}
       submitter={{
         searchConfig: {
           submitText: intl.formatMessage({
@@ -255,15 +207,6 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
         initialValue={props.values.email}
         rules={[
           {
-            required: true,
-            message: (
-              <FormattedMessage
-                id="pages.userList.email.required"
-                defaultMessage="邮箱为必填项"
-              />
-            ),
-          },
-          {
             type: 'email',
             message: (
               <FormattedMessage
@@ -273,8 +216,12 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
             ),
           },
         ]}
+        placeholder={intl.formatMessage({
+          id: 'pages.userList.email.placeholder',
+          defaultMessage: '请输入邮箱（选填）',
+        })}
       />
-      <ProFormSelect
+      <ProFormTreeSelect
         name="organization"
         label={intl.formatMessage({
           id: 'pages.userList.organization',
@@ -282,7 +229,16 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
         })}
         initialValue={props.values.organization}
         fieldProps={{
-          onChange: (value) => setSelectedOrg(value as string)
+          onChange: (value) => setSelectedOrg(value as string),
+          filterTreeNode: true,
+          showSearch: true,
+          popupMatchSelectWidth: false,
+          autoClearSearchValue: true,
+          treeNodeFilterProp: 'title',
+          fieldNames: {
+            label: 'title',
+            value: 'value',
+          },
         }}
         request={async () => {
           try {
@@ -291,10 +247,19 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
             });
             
             if (response && response.data) {
-              return response.data.map((org: any) => ({
-                label: org.name,
-                value: org.code
-              }));
+              // 构建树形结构
+              const buildTree = (items: any[], parentId: string = '0'): any[] => {
+                return items
+                  .filter(item => item.parentId === parentId)
+                  .map(item => ({
+                    title: item.name,
+                    value: item.code,
+                    key: item.id,
+                    children: buildTree(items, item.id),
+                  }));
+              };
+              
+              return buildTree(response.data);
             }
             return [];
           } catch (error) {
@@ -315,52 +280,6 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
         ]}
       />
       
-      <ProFormSelect
-        name="role"
-        label={intl.formatMessage({
-          id: 'pages.userList.role',
-          defaultMessage: '角色',
-        })}
-        initialValue={props.values.role}
-        fieldProps={{
-          loading: loading,
-          notFoundContent: loading ? <Spin size="small" /> : (selectedOrg ? 
-            intl.formatMessage({
-              id: 'pages.userList.role.noRoles',
-              defaultMessage: '该机构没有可用角色',
-            }) : 
-            intl.formatMessage({
-              id: 'pages.userList.role.selectOrgFirst',
-              defaultMessage: '请先选择机构',
-            })
-          ),
-          onChange: (value) => setSelectedRole(value as string),
-        }}
-        options={availableRoles}
-        placeholder={selectedOrg ? 
-          intl.formatMessage({
-            id: 'pages.userList.role.placeholder',
-            defaultMessage: '请选择角色',
-          }) : 
-          intl.formatMessage({
-            id: 'pages.userList.role.selectOrgFirst',
-            defaultMessage: '请先选择机构',
-          })
-        }
-        rules={[
-          {
-            required: true,
-            message: (
-              <FormattedMessage
-                id="pages.userList.role.required"
-                defaultMessage="角色为必填项"
-              />
-            ),
-          },
-        ]}
-        disabled={!selectedOrg || availableRoles.length === 0}
-      />
-      
       <Divider orientation="left">
         {intl.formatMessage({
           id: 'pages.userList.dataScope.title',
@@ -372,9 +291,9 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
         name="dataScope"
         label={intl.formatMessage({
           id: 'pages.userList.dataScope',
-          defaultMessage: '数据权限范围',
+          defaultMessage: '数据权限',
         })}
-        initialValue={props.values.dataScope || 'org'}
+        initialValue={props.values.dataScope || 'all'}
         options={[
           {
             label: intl.formatMessage({

@@ -92,7 +92,7 @@ const RoleList: React.FC = () => {
   const columns: ProColumns<API.RoleListItem>[] = [
     
     {
-      title: '角色名称',
+      title: intl.formatMessage({ id: 'pages.role.name', defaultMessage: '角色名称' }),
       dataIndex: 'name',
       valueType: 'text',
       render: (dom, entity) => {
@@ -109,12 +109,12 @@ const RoleList: React.FC = () => {
       },
     },
     {
-      title: '角色编码',
+      title: intl.formatMessage({ id: 'pages.role.code', defaultMessage: '角色编码' }),
       dataIndex: 'code',
       valueType: 'text',
     },
     {
-      title: '适用机构',
+      title: intl.formatMessage({ id: 'pages.role.organizations', defaultMessage: '适用机构' }),
       dataIndex: 'organizations',
       valueType: 'select',
       valueEnum: {
@@ -164,23 +164,28 @@ const RoleList: React.FC = () => {
       ellipsis: true,
     },
     {
-      title: '描述',
+      title: intl.formatMessage({ id: 'pages.role.description', defaultMessage: '描述' }),
       dataIndex: 'description',
       valueType: 'text',
       ellipsis: true,
     },
-
     {
-      title: '状态',
+      title: intl.formatMessage({ id: 'pages.role.sort', defaultMessage: '排序' }),
+      dataIndex: 'sort',
+      valueType: 'digit',
+      sorter: true,
+    },
+    {
+      title: intl.formatMessage({ id: 'pages.role.status', defaultMessage: '状态' }),
       dataIndex: 'status',
       hideInForm: true,
       valueEnum: {
         '0': {
-          text: '禁用',
+          text: intl.formatMessage({ id: 'pages.role.status.disabled', defaultMessage: '禁用' }),
           status: 'error',
         },
         '1': {
-          text: '启用',
+          text: intl.formatMessage({ id: 'pages.role.status.enabled', defaultMessage: '启用' }),
           status: 'success',
         },
       },
@@ -189,51 +194,94 @@ const RoleList: React.FC = () => {
     },
 
     {
-      title: <FormattedMessage id="pages.searchTable.titleOption" defaultMessage="操作" />,
+      title: <FormattedMessage id="pages.role.option" defaultMessage="操作" />,
       dataIndex: 'option',
       valueType: 'option',
-      render: (_, record) => [
-        <a
-          key="config"
-          onClick={() => {
-            setCurrentRow(record);
-            setIsEditing(true);
-            setShowDetail(true);
-          }}
-        >
-          <FormattedMessage id="pages.searchTable.config" defaultMessage="编辑" />
-        </a>,
-        <a
-          key="permission"
-          onClick={() => {
-            handlePermissionModalVisible(true);
-            setCurrentRow(record);
-          }}
-        >
-          编辑权限
-        </a>,
-        <Popconfirm
-          key="delete"
-          title="确定要删除此角色吗？"
-          onConfirm={async () => {
-            await handleRemove([record]);
-            actionRef.current?.reload();
-          }}
-          okText="确定"
-          cancelText="取消"
-        >
-          <a key="delete" style={{ color: 'red' }}>
-            删除
-          </a>
-        </Popconfirm>,
-      ],
+      render: (_, record) => {
+        // 超级管理员角色（ID为1）不可编辑和删除
+        if (record.id === '1') {
+          return [
+            <a
+              key="permission"
+              onClick={() => {
+                handlePermissionModalVisible(true);
+                setCurrentRow(record);
+              }}
+            >
+              <FormattedMessage id="pages.role.editPermission" defaultMessage="编辑权限" />
+            </a>,
+          ];
+        }
+        
+        // 供应商角色（ID为2）不可删除
+        if (record.id === '2') {
+          return [
+            <a
+              key="config"
+              onClick={() => {
+                setCurrentRow(record);
+                setIsEditing(true);
+                setShowDetail(true);
+              }}
+            >
+              <FormattedMessage id="pages.role.edit" defaultMessage="编辑" />
+            </a>,
+            <a
+              key="permission"
+              onClick={() => {
+                handlePermissionModalVisible(true);
+                setCurrentRow(record);
+              }}
+            >
+              <FormattedMessage id="pages.role.editPermission" defaultMessage="编辑权限" />
+            </a>,
+          ];
+        }
+        
+        // 其他角色可以编辑和删除
+        return [
+          <a
+            key="config"
+            onClick={() => {
+              setCurrentRow(record);
+              setIsEditing(true);
+              setShowDetail(true);
+            }}
+          >
+            <FormattedMessage id="pages.role.edit" defaultMessage="编辑" />
+          </a>,
+          <a
+            key="permission"
+            onClick={() => {
+              handlePermissionModalVisible(true);
+              setCurrentRow(record);
+            }}
+          >
+            <FormattedMessage id="pages.role.editPermission" defaultMessage="编辑权限" />
+          </a>,
+          <Popconfirm
+            key="delete"
+            title={intl.formatMessage({ id: 'pages.role.delete.confirm', defaultMessage: '确定要删除此角色吗？' })}
+            onConfirm={async () => {
+              await handleRemove([record]);
+              actionRef.current?.reload();
+            }}
+            okText={intl.formatMessage({ id: 'pages.common.confirm', defaultMessage: '确定' })}
+            cancelText={intl.formatMessage({ id: 'pages.common.cancel', defaultMessage: '取消' })}
+          >
+            <a key="delete" style={{ color: 'red' }}>
+              <FormattedMessage id="pages.role.delete" defaultMessage="删除" />
+            </a>
+          </Popconfirm>,
+        ];
+      },
     },
   ];
 
   return (
     <PageContainer>
       <ProTable<API.RoleListItem, API.PageParams>
-        headerTitle="角色列表"
+        headerTitle={intl.formatMessage({ id: 'pages.role.title', defaultMessage: '角色列表' })}
         actionRef={actionRef}
         rowKey="key"
         search={{
@@ -249,7 +297,7 @@ const RoleList: React.FC = () => {
               setShowDetail(true);
             }}
           >
-            <PlusOutlined /> <FormattedMessage id="pages.searchTable.new" defaultMessage="新建" />
+            <PlusOutlined /> <FormattedMessage id="pages.role.new" defaultMessage="新建" />
           </Button>,
         ]}
         request={async (params) => {
@@ -323,17 +371,24 @@ const RoleList: React.FC = () => {
           setIsEditing(false);
         }}
         closable={false}
-        title={isEditing ? (currentRow?.id ? '编辑角色' : '新建角色') : currentRow?.name}
+        title={isEditing 
+          ? (currentRow?.id 
+              ? intl.formatMessage({ id: 'pages.role.edit', defaultMessage: '编辑角色' }) 
+              : intl.formatMessage({ id: 'pages.role.new', defaultMessage: '新建角色' }))
+          : currentRow?.name}
       >
         {!isEditing && currentRow?.name && (
           <ProDescriptions<API.RoleListItem>
             column={2}
-            title={null}
+            title={currentRow?.name}
             request={async () => ({
               data: currentRow || {},
             })}
             params={{
               id: currentRow?.id,
+            }}
+            styles={{
+              content: {}
             }}
             columns={columns.filter(column => column.dataIndex !== 'id') as ProDescriptionsItemProps<API.RoleListItem>[]}
           />

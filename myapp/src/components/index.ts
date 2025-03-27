@@ -5,8 +5,10 @@
 /**
  * 布局组件
  */
-import Footer from './Footer';
-import { Question, SelectLang } from './RightContent';
+import Footer from '@/components/Footer';
+import HeaderDropdown from '@/components/HeaderDropdown';
+import { SelectLang } from './RightContent';
 import { AvatarDropdown, AvatarName } from './RightContent/AvatarDropdown';
 
-export { Footer, Question, SelectLang, AvatarDropdown, AvatarName };
+export { Footer, SelectLang, AvatarDropdown, AvatarName };
+export { HeaderDropdown };

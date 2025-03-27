@@ -32,26 +32,38 @@
     "test:update": "npm run jest -- -u",
     "tsc": "tsc --noEmit"
   },
-  "browserslist": ["> 1%", "last 2 versions", "not ie <= 10"],
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not ie <= 10"
+  ],
   "dependencies": {
+    "@ant-design/charts": "^2.2.7",
     "@ant-design/icons": "^4.8.1",
-    "@ant-design/plots": "^2.1.5",
+    "@ant-design/plots": "^2.3.3",
     "@ant-design/pro-components": "^2.6.44",
     "@antv/l7": "^2.20.13",
     "@antv/l7-maps": "^2.20.13",
     "@antv/l7-react": "^2.4.3",
+    "@nestjs/common": "^11.0.12",
+    "@nestjs/core": "^11.0.12",
+    "@nestjs/swagger": "^11.1.0",
+    "@nestjs/typeorm": "^11.0.0",
     "@umijs/route-utils": "^2.2.2",
     "antd": "^5.12.7",
     "antd-style": "^3.6.1",
     "classnames": "^2.5.1",
+    "date-fns": "^4.1.0",
     "dayjs": "^1.11.10",
     "numeral": "^2.0.6",
     "omit.js": "^2.0.2",
+    "pg": "^8.14.1",
     "querystring": "^0.2.1",
     "rc-util": "^5.38.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-fittext": "^1.0.0"
+    "react-fittext": "^1.0.0",
+    "typeorm": "^0.3.21"
   },
   "devDependencies": {
     "@ant-design/pro-cli": "^2.1.5",
@@ -66,6 +78,7 @@
     "@types/react": "^18.2.46",
     "@types/react-dom": "^18.2.18",
     "@types/react-helmet": "^6.1.11",
+    "@types/uuid": "^10.0.0",
     "@umijs/fabric": "^2.14.1",
     "@umijs/lint": "^4.1.0",
     "@umijs/max": "^4.1.0",
@@ -87,5 +100,7 @@
     "typescript": "^4.9.5",
     "umi-presets-pro": "^2.0.3"
   },
-  "engines": { "node": ">=12.0.0" }
+  "engines": {
+    "node": ">=12.0.0"
+  }
 }

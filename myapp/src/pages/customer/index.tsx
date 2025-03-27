@@ -1,240 +1,152 @@
-import { removeRule, rule } from '@/services/ant-design-pro/api';
-import type { ActionType, ProColumns, ProDescriptionsItemProps } from '@ant-design/pro-components';
+import { PlusOutlined } from '@ant-design/icons';
 import {
-  FooterToolbar,
+  ActionType,
   PageContainer,
-  ProDescriptions,
+  ProColumns,
   ProTable,
 } from '@ant-design/pro-components';
-import { FormattedMessage, useIntl, useRequest, history } from '@umijs/max';
-import { Button, Drawer, Input, message, Tag } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
-import React, { useCallback, useRef, useState } from 'react';
-import UpdateForm from './components/UpdateForm';
+import { Button, message, Popconfirm, Space, Tag } from 'antd';
+import { useRef, useState, useMemo } from 'react';
+import { history, useRequest } from '@umijs/max';
 import moment from 'moment';
-
-// 自定义客户类型
-interface CustomerItem extends API.RuleListItem {
-  passportNo?: string;
-  gender?: 'male' | 'female';
-  country?: string;
-  birthDate?: number | string;
-  issueDate?: number | string;
-  expiryDate?: number | string;
-  id?: string;
-}
+import { getCustomers, deleteCustomer } from '@/services/system/customer';
+import { getCountries } from '@/services/system/country';
 
 const CustomerList: React.FC = () => {
   const actionRef = useRef<ActionType>();
-
-  const [showDetail, setShowDetail] = useState<boolean>(false);
-  const [currentRow, setCurrentRow] = useState<CustomerItem>();
-  const [selectedRowsState, setSelectedRows] = useState<CustomerItem[]>([]);
-
-  /**
-   * @en-US International configuration
-   * @zh-CN 国际化配置
-   * */
-  const intl = useIntl();
-
-  const [messageApi, contextHolder] = message.useMessage();
-
-  const { run: delRun, loading } = useRequest(removeRule, {
-    manual: true,
-    onSuccess: () => {
-      setSelectedRows([]);
-      actionRef.current?.reloadAndRest?.();
-
-      messageApi.success('删除成功，即将刷新');
-    },
-    onError: () => {
-      messageApi.error('删除失败，请重试');
-    },
+  
+  // 获取国家列表
+  const { data: countryData } = useRequest(getCountries, {
+    defaultParams: [{ pageSize: 1000, status: 'enabled' }],
   });
+  
+  // 转换国家数据为valueEnum格式
+  const countryValueEnum = useMemo(() => {
+    const valueEnum: Record<string, { text: string, status: string }> = {};
+    if (countryData?.data) {
+      countryData.data.forEach((item: any) => {
+        valueEnum[item.name] = { text: item.name, status: 'default' };
+      });
+    }
+    return valueEnum;
+  }, [countryData]);
 
-  const columns: ProColumns<CustomerItem>[] = [
+  // 处理删除客户
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteCustomer(id);
+      message.success('删除成功');
+      actionRef.current?.reload();
+    } catch (error) {
+      message.error('删除失败');
+    }
+  };
+
+  const columns: ProColumns<API.CustomerItem>[] = [
     {
       title: '客户姓名',
       dataIndex: 'name',
-      render: (dom, entity) => {
-        return (
-          <a
-            onClick={() => {
-              setCurrentRow(entity);
-              setShowDetail(true);
-            }}
-          >
-            {dom}
-          </a>
-        );
-      },
+      render: (_, record) => (
+        <a onClick={() => history.push(`/customer/detail/${record.id}`)}>{record.name}</a>
+      ),
     },
     {
       title: '护照号码',
       dataIndex: 'passportNo',
-      tooltip: '护照号码是唯一的',
+      copyable: true,
     },
     {
       title: '性别',
       dataIndex: 'gender',
       valueEnum: {
-        male: { text: '男', status: 'Default' },
-        female: { text: '女', status: 'Default' },
+        male: { text: '男', status: 'default' },
+        female: { text: '女', status: 'default' },
       },
     },
     {
       title: '国家',
       dataIndex: 'country',
-      valueEnum: {
-        china: { text: '中国', status: 'Default' },
-        usa: { text: '美国', status: 'Default' },
-        uk: { text: '英国', status: 'Default' },
-        japan: { text: '日本', status: 'Default' },
-        korea: { text: '韩国', status: 'Default' },
-        france: { text: '法国', status: 'Default' },
-        germany: { text: '德国', status: 'Default' },
-        italy: { text: '意大利', status: 'Default' },
-        russia: { text: '俄罗斯', status: 'Default' },
-        canada: { text: '加拿大', status: 'Default' },
-        australia: { text: '澳大利亚', status: 'Default' },
-        newZealand: { text: '新西兰', status: 'Default' },
-      },
+      valueEnum: countryValueEnum,
     },
     {
       title: '出生日期',
       dataIndex: 'birthDate',
-      valueType: 'date',
+      render: (_, record) => record.birthDate ? moment(record.birthDate).format('YYYY-MM-DD') : '-',
     },
     {
       title: '护照有效期',
       dataIndex: 'passportValidity',
       render: (_, record) => {
-        if (record.issueDate && record.expiryDate) {
-          return `${moment(record.issueDate).format('YYYY-MM-DD')} 至 ${moment(record.expiryDate).format('YYYY-MM-DD')}`;
-        }
-        return '-';
+        const issueDate = record.issueDate ? moment(record.issueDate).format('YYYY-MM-DD') : '-';
+        const expiryDate = record.expiryDate ? moment(record.expiryDate).format('YYYY-MM-DD') : '-';
+        return `${issueDate} 至 ${expiryDate}`;
       },
     },
     {
+      title: '签证数量',
+      dataIndex: 'visaCount',
+      render: (_, record) => (
+        <Tag color="blue">{record.visaCount || 0}</Tag>
+      ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'createdAt',
+      render: (_, record) => record.createdAt ? moment(record.createdAt).format('YYYY-MM-DD HH:mm:ss') : '-',
+    },
+    {
       title: '操作',
-      dataIndex: 'option',
       valueType: 'option',
       render: (_, record) => [
-        <a
-          key="edit"
-          onClick={() => {
-            history.push(`/customer/edit/${record.id}`);
-          }}
-        >
-          编辑
+        <a key="detail" onClick={() => history.push(`/customer/detail/${record.id}`)}>
+          详情
         </a>,
-        <a
-          key="view"
-          onClick={() => {
-            setCurrentRow(record);
-            setShowDetail(true);
-          }}
+        <Popconfirm
+          key="delete"
+          title="确定要删除此客户吗？"
+          onConfirm={() => handleDelete(record.id)}
+          okText="确定"
+          cancelText="取消"
         >
-          查看
-        </a>,
+          <a>删除</a>
+        </Popconfirm>,
       ],
     },
   ];
 
-  /**
-   * 删除节点
-   *
-   * @param selectedRows
-   */
-  const handleRemove = useCallback(
-    async (selectedRows: CustomerItem[]) => {
-      if (!selectedRows?.length) {
-        messageApi.warning('请选择删除项');
-
-        return;
-      }
-
-      await delRun({
-        data: {
-          key: selectedRows.map((row) => row.key),
-        },
-      });
-    },
-    [delRun],
-  );
-
   return (
     <PageContainer>
-      {contextHolder}
-      <ProTable<CustomerItem, API.PageParams>
+      <ProTable<API.CustomerItem>
         headerTitle="客户列表"
         actionRef={actionRef}
-        rowKey="key"
+        rowKey="id"
         search={{
           labelWidth: 120,
-          defaultCollapsed: false,
         }}
         toolBarRender={() => [
           <Button
-            type="primary"
             key="create"
-            onClick={() => {
-              history.push('/customer/create-customer');
-            }}
-            icon={<PlusOutlined />}
+            type="primary"
+            onClick={() => history.push('/customer/create-customer')}
           >
-            新建客户
-          </Button>
+            <PlusOutlined /> 新建客户
+          </Button>,
         ]}
-        request={rule}
+        request={async (params) => {
+          const { current, pageSize, ...rest } = params;
+          const response = await getCustomers({
+            current,
+            pageSize,
+            ...rest,
+          });
+          return {
+            data: response.data,
+            success: response.success,
+            total: response.total,
+          };
+        }}
         columns={columns}
-        rowSelection={{
-          onChange: (_, selectedRows) => {
-            setSelectedRows(selectedRows);
-          },
-        }}
       />
-      {selectedRowsState?.length > 0 && (
-        <FooterToolbar
-          extra={
-            <div>
-              已选择 <a style={{ fontWeight: 600 }}>{selectedRowsState.length}</a> 项
-            </div>
-          }
-        >
-          <Button
-            loading={loading}
-            onClick={() => {
-              handleRemove(selectedRowsState);
-            }}
-          >
-            批量删除
-          </Button>
-        </FooterToolbar>
-      )}
-      <Drawer
-        width={600}
-        open={showDetail}
-        onClose={() => {
-          setCurrentRow(undefined);
-          setShowDetail(false);
-        }}
-        closable={false}
-      >
-        {currentRow?.name && (
-          <ProDescriptions<CustomerItem>
-            column={2}
-            title={currentRow?.name}
-            request={async () => ({
-              data: currentRow || {},
-            })}
-            params={{
-              id: currentRow?.name,
-            }}
-            columns={columns as ProDescriptionsItemProps<CustomerItem>[]}
-          />
-        )}
-      </Drawer>
     </PageContainer>
   );
 };

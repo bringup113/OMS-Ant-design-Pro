@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # 前端服务
+  frontend:
+    build:
+      context: ./myapp
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    restart: always
+    networks:
+      - oms-network
+    depends_on:
+      - backend
+
+  # 后端服务 - 仅内部可访问
+  backend:
+    build:
+      context: ./backend/oms-api
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DATABASE_USERNAME=postgres
+      - DATABASE_PASSWORD=postgres
+      - DATABASE_NAME=oms
+      - JWT_SECRET=your_jwt_secret
+      - JWT_EXPIRES_IN=24h
+    ports:
+      - "127.0.0.1:3000:3000" # 仅本地可访问
+    restart: always
+    networks:
+      - oms-network
+    depends_on:
+      - db
+
+  # 数据库服务
+  db:
+    image: postgres:14-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=oms
+    ports:
+      - "127.0.0.1:5432:5432" # 仅本地可访问
+    restart: always
+    networks:
+      - oms-network
+
+networks:
+  oms-network:
+    driver: bridge
+
+volumes:
+  postgres_data: 

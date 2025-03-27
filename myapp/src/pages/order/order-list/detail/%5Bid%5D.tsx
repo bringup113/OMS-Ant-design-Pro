@@ -1,0 +1,1 @@
+<Descriptions.Item label="订单总金额">${orderData.totalAmount}</Descriptions.Item> 

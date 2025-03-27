@@ -9,8 +9,8 @@ import {
   ProFormCheckbox,
   ProFormText,
 } from '@ant-design/pro-components';
-import { FormattedMessage, Helmet, SelectLang, useIntl, useModel } from '@umijs/max';
-import { Alert, message, Row, Col, Typography, Button, Form } from 'antd';
+import { FormattedMessage, Helmet, SelectLang, useIntl, useModel, history } from '@umijs/max';
+import { Alert, App, Typography, Button, Form, message } from 'antd';
 import { createStyles } from 'antd-style';
 import React, { useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -185,21 +185,30 @@ const LoginMessage: React.FC<{
 
 const Login: React.FC = () => {
   const [userLoginState, setUserLoginState] = useState<API.LoginResult>({});
+  const [type] = useState<string>('account');
   const { initialState, setInitialState } = useModel('@@initialState');
   const { styles } = useStyles();
   const intl = useIntl();
   const [form] = Form.useForm();
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
+  const [messageApi, contextHolder] = message.useMessage();
 
   const fetchUserInfo = async () => {
-    const userInfo = await initialState?.fetchUserInfo?.();
-    if (userInfo) {
-      flushSync(() => {
-        setInitialState((s) => ({
-          ...s,
-          currentUser: userInfo,
-        }));
-      });
+    try {
+      const userInfo = await initialState?.fetchUserInfo?.();
+      if (userInfo) {
+        flushSync(() => {
+          setInitialState((s) => ({
+            ...s,
+            currentUser: userInfo,
+          }));
+        });
+        return userInfo;
+      }
+      throw new Error('Failed to get user info');
+    } catch (error) {
+      console.error('获取用户信息失败:', error);
+      throw error;
     }
   };
 
@@ -208,42 +217,69 @@ const Login: React.FC = () => {
     try {
       // 登录
       const msg = await login({ ...values });
-      if (msg.status === 'ok') {
+      console.log('登录响应:', msg);
+      
+      if (msg.status === 'ok' && (msg.access_token || msg.token)) {
         // 保存token到localStorage
-        if (msg.access_token) {
-          localStorage.setItem('token', msg.access_token);
-        }
+        localStorage.setItem('token', msg.access_token || msg.token);
         
         const defaultLoginSuccessMessage = intl.formatMessage({
           id: 'pages.login.success',
           defaultMessage: '登录成功！',
         });
-        message.success(defaultLoginSuccessMessage);
-        await fetchUserInfo();
-        // 登录成功后也重置 loading 状态，虽然会跳转页面，但为了代码完整性
+        messageApi.success(defaultLoginSuccessMessage);
+        
+        try {
+          // 获取用户信息并更新全局状态
+          const userInfo = await fetchUserInfo();
+          console.log('获取到的用户信息:', userInfo);
+          
+          if (userInfo) {
+            flushSync(() => {
+              setInitialState((s) => {
+                const newState = {
+                  ...s,
+                  currentUser: userInfo,
+                };
+                console.log('更新后的全局状态:', newState);
+                return newState;
+              });
+            });
+          }
+          
+          // 登录成功后也重置 loading 状态，虽然会跳转页面，但为了代码完整性
+          setLoginLoading(false);
+          
+          // 使用 history.push 替代 window.location.href
+          const urlParams = new URL(window.location.href).searchParams;
+          const redirect = urlParams.get('redirect');
+          history.push(redirect || '/customer');
+          return;
+        } catch (error) {
+          // 如果获取用户信息失败，清除token
+          console.error('获取用户信息失败:', error);
+          localStorage.removeItem('token');
+          throw error;
+        }
+      } else {
+        // 如果失败去设置用户错误信息
+        setUserLoginState(msg);
+        
+        // 添加错误提示弹窗
+        const errorMessage = intl.formatMessage({
+          id: 'pages.login.accountLogin.errorMessage',
+          defaultMessage: '账户或密码错误',
+        });
+        messageApi.error(errorMessage);
         setLoginLoading(false);
-        const urlParams = new URL(window.location.href).searchParams;
-        window.location.href = urlParams.get('redirect') || '/';
-        return;
       }
-      console.log(msg);
-      // 如果失败去设置用户错误信息
-      setUserLoginState(msg);
-      
-      // 添加错误提示弹窗
-      const errorMessage = intl.formatMessage({
-        id: 'pages.login.accountLogin.errorMessage',
-        defaultMessage: '账户或密码错误',
-      });
-      message.error(errorMessage);
-      setLoginLoading(false);
     } catch (error) {
       const defaultLoginFailureMessage = intl.formatMessage({
         id: 'pages.login.failure',
         defaultMessage: '登录失败，请重试！',
       });
-      console.log(error);
-      message.error(defaultLoginFailureMessage);
+      console.error('登录失败:', error);
+      messageApi.error(defaultLoginFailureMessage);
       setLoginLoading(false);
     }
   };
@@ -251,6 +287,7 @@ const Login: React.FC = () => {
 
   return (
     <div className={styles.container}>
+      {contextHolder}
       <Helmet>
         <title>
           {intl.formatMessage({
@@ -273,7 +310,7 @@ const Login: React.FC = () => {
           />
           <div className={styles.leftLogo}>
             <img 
-              src="/logo.svg" 
+              src="/logo - White.png" 
               alt={intl.formatMessage({
                 id: 'pages.login.logo.alt',
                 defaultMessage: '标志',
@@ -312,7 +349,7 @@ const Login: React.FC = () => {
               </p>
               <LoginForm
                 form={form}
-                contentStyle={{
+                style={{
                   width: '100%',
                   marginTop: '25px',
                 }}

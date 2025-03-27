@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, IsNull, ILike } from 'typeorm';
 import { Organization } from './entities/organization.entity';
@@ -33,26 +33,29 @@ export class OrganizationsService {
       // 创建新机构对象，但不设置ID，让数据库自动生成
       const organization = new Organization();
       organization.name = createOrganizationDto.name;
-      
-      // 条件赋值，如果有code就设置，没有就不设置
-      if (createOrganizationDto.code) {
-        organization.code = createOrganizationDto.code;
-      }
-      
-      organization.sort = createOrganizationDto.sort || 0;
+      organization.code = createOrganizationDto.code || '';
       organization.status = createOrganizationDto.status || '1';
+      organization.type = 'customer'; // 默认为客户类型
       
       if (createOrganizationDto.parentId) {
-        const parentId = typeof createOrganizationDto.parentId === 'string' 
-          ? parseInt(createOrganizationDto.parentId) 
-          : createOrganizationDto.parentId;
-          
-        const parent = await this.organizationsRepository.findOne({ 
-          where: { id: parentId } 
+        const parent = await this.organizationsRepository.findOne({
+          where: { id: createOrganizationDto.parentId },
         });
         
-        if (parent) {
-          organization.parent = parent;
+        if (!parent) {
+          throw new NotFoundException(`Parent organization with ID ${createOrganizationDto.parentId} not found`);
+        }
+        
+        organization.parent = parent;
+        
+        // 如果父级是供应商，设置合作方式
+        if (parent.type === 'supplier') {
+          organization.cooperation_type = createOrganizationDto.cooperation_type || 'no_commission';
+          
+          // 如果选择了利润分佣，保存佣金比例
+          if (organization.cooperation_type === 'profit_commission' && createOrganizationDto.commission_rate !== undefined) {
+            organization.commission_rate = createOrganizationDto.commission_rate;
+          }
         }
       }
       
@@ -61,6 +64,10 @@ export class OrganizationsService {
       
       // 使用save方法保存实体
       const savedOrg = await this.organizationsRepository.save(organization);
+      
+      // 更新排序值为ID
+      savedOrg.sort = savedOrg.id;
+      await this.organizationsRepository.save(savedOrg);
       
       // 转换为前端需要的格式
       return this.transformToFrontendFormat(savedOrg);
@@ -114,6 +121,11 @@ export class OrganizationsService {
   }
 
   async findOne(id: number): Promise<any> {
+    // 检查 ID 是否为有效数字
+    if (!id || isNaN(id)) {
+      throw new NotFoundException(`Invalid organization ID`);
+    }
+
     const organization = await this.organizationsRepository.findOne({
       where: { id },
       relations: ['parent'],
@@ -128,6 +140,11 @@ export class OrganizationsService {
   }
 
   async update(id: number, updateOrganizationDto: UpdateOrganizationDto): Promise<any> {
+    // 总部机构（ID为1）和供应商机构（ID为2）不可编辑
+    if (id === 1 || id === 2) {
+      throw new ConflictException(`ID为${id}的机构不可编辑`);
+    }
+    
     const organization = await this.organizationsRepository.findOne({
       where: { id },
       relations: ['parent'],
@@ -148,46 +165,74 @@ export class OrganizationsService {
       }
     }
     
-    // 更新基本字段
-    if (updateOrganizationDto.name !== undefined) organization.name = updateOrganizationDto.name;
-    if (updateOrganizationDto.code !== undefined) organization.code = updateOrganizationDto.code;
-    if (updateOrganizationDto.sort !== undefined) organization.sort = updateOrganizationDto.sort;
-    if (updateOrganizationDto.status !== undefined) organization.status = updateOrganizationDto.status;
-    
-    // 处理父级机构
-    if (updateOrganizationDto.parentId) {
-      // 检查是否将机构设置为自己的子机构
-      if (updateOrganizationDto.parentId.toString() === id.toString()) {
-        throw new ConflictException('不能将机构设置为自己的子机构');
-      }
+    try {
+      // 更新基本字段
+      if (updateOrganizationDto.name !== undefined) organization.name = updateOrganizationDto.name;
+      if (updateOrganizationDto.code !== undefined) organization.code = updateOrganizationDto.code;
+      if (updateOrganizationDto.status !== undefined) organization.status = updateOrganizationDto.status;
       
-      const parentId = typeof updateOrganizationDto.parentId === 'string' 
-        ? parseInt(updateOrganizationDto.parentId) 
-        : updateOrganizationDto.parentId;
+      // 处理父级机构
+      if (updateOrganizationDto.parentId) {
+        const parent = await this.organizationsRepository.findOne({
+          where: { id: updateOrganizationDto.parentId },
+        });
         
-      const parent = await this.organizationsRepository.findOne({ 
-        where: { id: parentId } 
-      });
-      
-      if (parent) {
+        if (!parent) {
+          throw new NotFoundException(`Parent organization with ID ${updateOrganizationDto.parentId} not found`);
+        }
+        
         organization.parent = parent;
+        
+        // 如果父级是供应商，设置合作方式
+        if (parent.type === 'supplier') {
+          organization.cooperation_type = updateOrganizationDto.cooperation_type || organization.cooperation_type || 'no_commission';
+          
+          // 如果选择了利润分佣，保存佣金比例
+          if (organization.cooperation_type === 'profit_commission' && updateOrganizationDto.commission_rate !== undefined) {
+            organization.commission_rate = updateOrganizationDto.commission_rate;
+          }
+        }
+      } else if (updateOrganizationDto.parentId === null) {
+        organization.parent = null;
+        organization.cooperation_type = 'no_commission';
+        organization.commission_rate = 0;
       }
-    } else if (updateOrganizationDto.parentId === null || updateOrganizationDto.parentId?.toString() === '0') {
-      // 使用 TypeORM 的方式处理关系为 null
-      await this.organizationsRepository
-        .createQueryBuilder()
-        .relation(Organization, "parent")
-        .of(organization)
-        .set(null);
+      
+      // 如果直接更新合作方式为利润分佣，处理佣金比例
+      if (updateOrganizationDto.cooperation_type === 'profit_commission') {
+        // 确保commission_rate存在且为数字类型
+        console.log('处理利润分佣佣金比例:', updateOrganizationDto.commission_rate);
+        if (updateOrganizationDto.commission_rate !== undefined) {
+          // 确保是数字类型
+          organization.commission_rate = Number(updateOrganizationDto.commission_rate);
+          console.log('设置佣金比例为:', organization.commission_rate);
+        } else if (organization.commission_rate === null || organization.commission_rate === undefined) {
+          // 如果未提供且原值不存在，设置默认值为0
+          organization.commission_rate = 0;
+          console.log('设置默认佣金比例为0');
+        }
+      } else if (updateOrganizationDto.cooperation_type === 'no_commission' || updateOrganizationDto.cooperation_type === 'normal_trade') {
+        // 如果合作方式不是利润分佣，将佣金比例重置为0
+        organization.commission_rate = 0;
+        console.log('重置佣金比例为0');
+      }
+      
+      const savedOrg = await this.organizationsRepository.save(organization);
+      return this.transformToFrontendFormat(savedOrg);
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof ConflictException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('更新机构失败');
     }
-    
-    const savedOrg = await this.organizationsRepository.save(organization);
-    
-    // 转换为前端需要的格式
-    return this.transformToFrontendFormat(savedOrg);
   }
 
   async remove(id: number): Promise<void> {
+    // 总部机构（ID为1）和供应商机构（ID为2）不可删除
+    if (id === 1 || id === 2) {
+      throw new ConflictException(`ID为${id}的机构不可删除`);
+    }
+    
     // 检查是否有子机构
     const children = await this.organizationsRepository.find({
       where: { parent: { id } },
@@ -220,17 +265,60 @@ export class OrganizationsService {
   }
   
   // 将数据库实体转换为前端需要的格式
-  private transformToFrontendFormat(organization: Organization): any {
-    return {
-      id: organization.id.toString(),
-      key: organization.id.toString(),
-      name: organization.name,
-      code: organization.code,
-      parentId: organization.parent ? organization.parent.id.toString() : '0',
-      parentName: organization.parent ? organization.parent.name : '-',
-      sort: organization.sort,
-      status: organization.status,
-      createdAt: organization.created_at.toISOString(),
+  private transformToFrontendFormat(org: Organization): any {
+    const result = {
+      id: org.id,
+      name: org.name,
+      code: org.code,
+      parentId: org.parent?.id,
+      parentName: org.parent?.name,
+      parent: org.parent ? {
+        id: org.parent.id,
+        name: org.parent.name,
+        type: org.parent.type
+      } : null,
+      type: org.type,
+      status: org.status,
+      cooperation_type: org.cooperation_type,
+      commission_rate: org.commission_rate || 0, // 确保总是返回commission_rate值
+      createdAt: org.created_at,
+      updatedAt: org.updated_at
     };
+    
+    console.log('变换后的机构数据:', result);
+    return result;
+  }
+
+  async findSuppliers(): Promise<any[]> {
+    // 直接使用 find 方法，避免复杂的 QueryBuilder
+    const organizations = await this.organizationsRepository.find({
+      where: {
+        parent: { id: 2 }, // 供应商机构的ID为2
+        status: '1', // 只获取启用状态的供应商
+      },
+      relations: ['parent'],
+      order: { sort: 'ASC' },
+    });
+    
+    return organizations.map(org => this.transformToFrontendFormat(org));
+  }
+
+  async findSupplierChildren(supplierId: number): Promise<any[]> {
+    // 检查供应商ID是否有效
+    if (!supplierId || isNaN(supplierId)) {
+      return [];
+    }
+
+    // 查找指定供应商的子级机构
+    const organizations = await this.organizationsRepository.find({
+      where: {
+        parent: { id: supplierId },
+        status: '1', // 只获取启用状态的子级
+      },
+      relations: ['parent'],
+      order: { sort: 'ASC' },
+    });
+    
+    return organizations.map(org => this.transformToFrontendFormat(org));
   }
 } 

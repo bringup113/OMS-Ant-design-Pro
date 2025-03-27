@@ -26,49 +26,127 @@ export default [
         redirect: '/user/login',
       },
       {
-        name: 'register-result',
-        icon: 'smile',
-        path: '/user/register-result',
-        component: './user/register-result',
-      },
-      {
-        name: 'register',
-        icon: 'smile',
-        path: '/user/register',
-        component: './user/register',
-      },
-      {
         component: '404',
         path: '/user/*',
       },
     ],
   },
   {
-    path: '/dashboard',
-    name: 'dashboard',
-    icon: 'dashboard',
+    path: '/customer',
+    name: 'customer',
+    icon: 'UserOutlined',
+    component: './customer',
+  },
+  {
+    path: '/customer/detail/:id',
+    component: './customer/detail',
+    hideInMenu: true,
+  },
+  {
+    path: '/customer/create-customer',
+    component: './customer/create-customer',
+    hideInMenu: true,
+  },
+  {
+    path: '/customer/edit/:id',
+    component: './customer/edit',
+    hideInMenu: true,
+  },
+  {
+    path: '/order',
+    name: 'order',
+    icon: 'shopping',
     routes: [
       {
-        path: '/dashboard',
-        redirect: '/dashboard/analysis',
+        path: '/order',
+        redirect: '/order/order-list',
       },
       {
-        name: 'analysis',
+        name: 'order-list',
         icon: 'smile',
-        path: '/dashboard/analysis',
-        component: './dashboard/analysis',
+        path: '/order/order-list',
+        component: './order/order-list',
       },
       {
-        name: 'monitor',
-        icon: 'smile',
-        path: '/dashboard/monitor',
-        component: './dashboard/monitor',
+        name: 'create-order',
+        path: '/order/order-list/create',
+        component: './order/order-list/create',
+        hideInMenu: true,
       },
       {
-        name: 'workplace',
+        name: 'edit-order',
+        path: '/order/order-list/edit/:id',
+        component: './order/order-list/edit/[id]',
+        hideInMenu: true,
+      },
+      {
+        name: 'detail-order',
+        path: '/order/order-list/detail/:id',
+        component: './order/order-list/detail/[id]',
+        hideInMenu: true,
+      },
+      {
+        name: 'bill-management',
         icon: 'smile',
-        path: '/dashboard/workplace',
-        component: './dashboard/workplace',
+        path: '/order/bill-management',
+        component: './order/bill-management',
+      },
+      {
+        name: 'bill-detail',
+        path: '/order/bill-management/detail/:id',
+        component: './order/bill-management/detail',
+        hideInMenu: true,
+      },
+    ],
+  },
+  {
+    path: '/product',
+    name: 'product',
+    icon: 'appstore',
+    routes: [
+      {
+        path: '/product',
+        redirect: '/product/list',
+      },
+      {
+        name: 'list',
+        icon: 'smile',
+        path: '/product/list',
+        component: './product/list',
+      },
+      {
+        path: '/product/quotation',
+        name: 'quotation',
+        component: './product/quotation',
+      },
+    ],
+  },
+  {
+    path: '/agent',
+    name: 'agent',
+    icon: 'TeamOutlined',
+    component: './Agents/List',
+  },
+  {
+    path: '/profit',
+    name: 'profit',
+    icon: 'PropertySafetyOutlined',
+    routes: [
+      {
+        path: '/profit',
+        redirect: '/profit/supplier-profit',
+      },
+      {
+        name: 'supplier-profit',
+        icon: 'ShopOutlined',
+        path: '/profit/supplier-profit',
+        component: './profit/supplier-profit',
+      },
+      {
+        name: 'agent-profit',
+        icon: 'UserSwitchOutlined',
+        path: '/profit/agent-profit',
+        component: './profit/agent-profit',
       },
     ],
   },
@@ -89,267 +167,37 @@ export default [
       },
       {
         name: 'organization',
-        icon: 'apartment',
+        icon: 'cluster',
         path: '/system/organization',
         component: './system/organization',
       },
       {
         name: 'role',
-        icon: 'safety',
+        icon: 'solution',
         path: '/system/role',
         component: './system/role',
       },
-    ],
-  },
-  {
-    path: '/form',
-    icon: 'form',
-    name: 'form',
-    routes: [
-      {
-        path: '/form',
-        redirect: '/form/basic-form',
-      },
-      {
-        name: 'basic-form',
-        icon: 'smile',
-        path: '/form/basic-form',
-        component: './form/basic-form',
-      },
-      {
-        name: 'step-form',
-        icon: 'smile',
-        path: '/form/step-form',
-        component: './form/step-form',
-      },
-      {
-        name: 'advanced-form',
-        icon: 'smile',
-        path: '/form/advanced-form',
-        component: './form/advanced-form',
-      },
-    ],
-  },
-  {
-    path: '/customer',
-    name: 'customer',
-    icon: 'team',
-    routes: [
-      {
-        path: '/customer',
-        component: './customer',
-      },
-      {
-        name: 'create-customer',
-        path: '/customer/create',
-        component: './customer/create-customer',
-        hideInMenu: true,
-      },
-    ],
-  },
-  {
-    path: '/order',
-    name: 'order',
-    icon: 'shopping',
-    routes: [
-      {
-        path: '/order',
-        redirect: '/order/order-list',
-      },
-      {
-        name: 'order-list',
-        icon: 'smile',
-        path: '/order/order-list',
-        component: './order/order-list',
-      },
-      {
-        name: 'bill-management',
-        icon: 'smile',
-        path: '/order/bill-management',
-        component: './order/bill-management',
-      },
-    ],
-  },
-  {
-    path: '/product',
-    name: 'product',
-    icon: 'appstore',
-    routes: [
-      {
-        path: '/product',
-        redirect: '/product/category',
-      },
       {
         name: 'category',
-        icon: 'smile',
-        path: '/product/category',
-        component: './product/category',
+        icon: 'appstore',
+        path: '/system/category',
+        component: './system/category',
       },
       {
-        name: 'list',
-        icon: 'smile',
-        path: '/product/list',
-        component: './product/list',
-      },
-      {
-        name: 'price',
-        icon: 'smile',
-        path: '/product/price',
-        component: './product/price',
+        name: 'country',
+        icon: 'global',
+        path: '/system/country',
+        component: './system/country',
       },
     ],
-  },
-  {
-    path: '/list',
-    icon: 'table',
-    name: 'list',
-    routes: [
-      {
-        path: '/list/search',
-        name: 'search-list',
-        component: './list/search',
-        routes: [
-          {
-            path: '/list/search',
-            redirect: '/list/search/articles',
-          },
-          {
-            name: 'articles',
-            icon: 'smile',
-            path: '/list/search/articles',
-            component: './list/search/articles',
-          },
-          {
-            name: 'projects',
-            icon: 'smile',
-            path: '/list/search/projects',
-            component: './list/search/projects',
-          },
-          {
-            name: 'applications',
-            icon: 'smile',
-            path: '/list/search/applications',
-            component: './list/search/applications',
-          },
-        ],
-      },
-      {
-        path: '/list',
-        redirect: '/list/table-list',
-      },
-      {
-        name: 'table-list',
-        icon: 'smile',
-        path: '/list/table-list',
-        component: './table-list',
-      },
-      {
-        name: 'basic-list',
-        icon: 'smile',
-        path: '/list/basic-list',
-        component: './list/basic-list',
-      },
-      {
-        name: 'card-list',
-        icon: 'smile',
-        path: '/list/card-list',
-        component: './list/card-list',
-      },
-    ],
-  },
-  {
-    path: '/profile',
-    name: 'profile',
-    icon: 'profile',
-    routes: [
-      {
-        path: '/profile',
-        redirect: '/profile/basic',
-      },
-      {
-        name: 'basic',
-        icon: 'smile',
-        path: '/profile/basic',
-        component: './profile/basic',
-      },
-      {
-        name: 'advanced',
-        icon: 'smile',
-        path: '/profile/advanced',
-        component: './profile/advanced',
-      },
-    ],
-  },
-  {
-    name: 'result',
-    icon: 'CheckCircleOutlined',
-    path: '/result',
-    routes: [
-      {
-        path: '/result',
-        redirect: '/result/success',
-      },
-      {
-        name: 'success',
-        icon: 'smile',
-        path: '/result/success',
-        component: './result/success',
-      },
-      {
-        name: 'fail',
-        icon: 'smile',
-        path: '/result/fail',
-        component: './result/fail',
-      },
-    ],
-  },
-  {
-    name: 'exception',
-    icon: 'warning',
-    path: '/exception',
-    hideInMenu: true,
-    routes: [
-      {
-        path: '/exception',
-        redirect: '/exception/403',
-      },
-      {
-        name: '403',
-        icon: 'smile',
-        path: '/exception/403',
-        component: './exception/403',
-      },
-      {
-        name: '404',
-        icon: 'smile',
-        path: '/exception/404',
-        component: './exception/404',
-      },
-      {
-        name: '500',
-        icon: 'smile',
-        path: '/exception/500',
-        component: './exception/500',
-      },
-    ],
-  },
-  // 隐藏的路由，不在左侧菜单显示
-  {
-    path: '/account',
-    routes: [
-      {
-        path: '/account/settings',
-        component: './account/settings',
-      },
-    ],
-    hideInMenu: true,
   },
   {
     path: '/',
-    redirect: '/dashboard/analysis',
+    redirect: '/customer',
   },
   {
-    component: '404',
-    path: '/*',
+    path: '*',
+    layout: false,
+    component: './404',
   },
 ];
