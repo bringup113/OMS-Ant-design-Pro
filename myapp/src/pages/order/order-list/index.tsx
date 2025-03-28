@@ -1,6 +1,6 @@
-import { DownOutlined, PlusOutlined } from '@ant-design/icons';
+import { DownOutlined, PlusOutlined, SearchOutlined, FileAddOutlined, EllipsisOutlined, SnippetsOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
-import { useRequest, history, request } from '@umijs/max';
+import { useRequest, history, request, useAccess } from '@umijs/max';
 import {
   Button,
   Card,
@@ -16,6 +16,8 @@ import {
   List,
   Space,
   Spin,
+  Popconfirm,
+  Select,
 } from 'antd';
 import dayjs from 'dayjs';
 import type { FC } from 'react';
@@ -23,6 +25,9 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { queryFakeList, removeFakeList, getBillStyleTemplates, createBill } from './service';
 import useStyles from './style.style';
 import type { OrderItem, Agent } from './data.d';
+import { StatusTag, PermissionControl } from '@/components';
+import { getAgents } from '@/services/agent';
+import debounce from 'lodash/debounce';
 
 const RadioButton = Radio.Button;
 const RadioGroup = Radio.Group;
@@ -43,60 +48,10 @@ const Info: FC<{
   );
 };
 
-const StatusTag: FC<{ status: string; type: 'order' | 'payment' | 'account' }> = ({ status, type }) => {
-  let color = 'default';
-  let text = '未知';
-  
-  if (type === 'order') {
-    switch (status) {
-      case 'pending':
-        color = 'warning';
-        text = '待处理';
-        break;
-      case 'processing':
-        color = 'processing';
-        text = '处理中';
-        break;
-      case 'completed':
-        color = 'success';
-        text = '已完成';
-        break;
-      case 'canceled':
-      case 'cancelled':
-        color = 'error';
-        text = '已取消';
-        break;
-    }
-  } else if (type === 'payment') {
-    switch (status) {
-      case 'unpaid':
-        color = 'warning';
-        text = '未支付';
-        break;
-      case 'paid':
-        color = 'success';
-        text = '已支付';
-        break;
-      case 'refunded':
-        color = 'error';
-        text = '已退款';
-        break;
-    }
-  } else if (type === 'account') {
-    switch (status) {
-      case 'unbilled':
-        color = 'default';
-        text = '未生成账单';
-        break;
-      case 'billed':
-        color = 'success';
-        text = '已生成账单';
-        break;
-    }
-  }
-  
-  return <Tag color={color}>{text}</Tag>;
-};
+// 防抖处理搜索
+const debouncedSearch = debounce((value: string, callback: (value: string) => void) => {
+  callback(value);
+}, 500);
 
 export const OrderList: FC = () => {
   const { styles } = useStyles();
@@ -113,6 +68,30 @@ export const OrderList: FC = () => {
   const [loadingTemplates, setLoadingTemplates] = useState<boolean>(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [billStyleModalVisible, setBillStyleModalVisible] = useState<boolean>(false);
+  const access = useAccess();
+
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
+  const [processingOrdersCount, setProcessingOrdersCount] = useState(0);
+  const [completedOrdersCount, setCompletedOrdersCount] = useState(0);
+
+  const calculateLocalStatistics = useCallback(() => {
+    if (!orderData || orderData.length === 0) {
+      setPendingOrdersCount(0);
+      setProcessingOrdersCount(0);
+      setCompletedOrdersCount(0);
+      return;
+    }
+
+    const pendingCount = orderData.filter(item => item.status === 'pending').length;
+    const processingCount = orderData.filter(item => item.status === 'processing').length;
+    const completedCount = orderData.filter(item => item.status === 'completed').length;
+    
+    setPendingOrdersCount(pendingCount);
+    setProcessingOrdersCount(processingCount);
+    setCompletedOrdersCount(completedCount);
+    
+    console.log('使用本地数据计算统计:', { pendingCount, processingCount, completedCount });
+  }, [orderData]);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -144,11 +123,19 @@ export const OrderList: FC = () => {
               agent: agent || undefined
             };
           }
+          
+          if (!order.status && Array.isArray(order.businesses)) {
+            const status = calculateOrderStatus(order.businesses);
+            return { ...order, status };
+          }
+          
           return order;
         });
         
         setOrderData(ordersWithAgent);
         setTotal(result.total || 0);
+        
+        calculateLocalStatistics();
       } else {
         message.error('获取订单数据格式错误');
       }
@@ -158,7 +145,30 @@ export const OrderList: FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, agentsData, searchText]);
+  }, [currentPage, pageSize, agentsData, searchText, calculateLocalStatistics]);
+
+  const calculateOrderStatus = (businesses: any[]): 'pending' | 'processing' | 'completed' | 'cancelled' => {
+    if (!businesses || businesses.length === 0) {
+      return 'pending';
+    }
+
+    const allCancelled = businesses.every(business => business.status === 'cancelled');
+    if (allCancelled) {
+      return 'cancelled';
+    }
+
+    const allCompleted = businesses.every(business => business.status === 'completed');
+    if (allCompleted) {
+      return 'completed';
+    }
+
+    const anyProcessing = businesses.some(business => business.status === 'processing');
+    if (anyProcessing) {
+      return 'processing';
+    }
+
+    return 'pending';
+  };
 
   const fetchBillTemplates = useCallback(async () => {
     setLoadingTemplates(true);
@@ -166,7 +176,6 @@ export const OrderList: FC = () => {
       const response = await getBillStyleTemplates();
       if (Array.isArray(response)) {
         setTemplates(response);
-        // 如果有默认模板，则自动选择
         const defaultTemplate = response.find(t => t.isDefault);
         if (defaultTemplate) {
           setSelectedTemplateId(defaultTemplate.id);
@@ -184,6 +193,23 @@ export const OrderList: FC = () => {
     }
   }, []);
 
+  const fetchOrderStatistics = useCallback(async () => {
+    try {
+      const response = await request('/api/orders/statistics');
+      
+      if (response && response.success) {
+        setPendingOrdersCount(response.pending || 0);
+        setProcessingOrdersCount(response.processing || 0);
+        setCompletedOrdersCount(response.completed || 0);
+      } else {
+        calculateLocalStatistics();
+      }
+    } catch (error) {
+      console.error('获取订单统计失败:', error);
+      calculateLocalStatistics();
+    }
+  }, []);
+
   useEffect(() => {
     fetchAgents();
   }, [fetchAgents]);
@@ -193,6 +219,12 @@ export const OrderList: FC = () => {
       fetchOrders();
     }
   }, [fetchOrders, agentsData]);
+
+  useEffect(() => {
+    if (agentsData.length > 0) {
+      fetchOrderStatistics();
+    }
+  }, [agentsData, fetchOrderStatistics]);
 
   const deleteItem = useCallback(async (id: number) => {
     Modal.confirm({
@@ -207,13 +239,10 @@ export const OrderList: FC = () => {
           
           if (response && response.success) {
             message.success(response.message || '订单删除成功');
-            // 重新获取列表数据
             fetchOrders();
           } else {
-            // 显示具体的错误信息
             const errorMsg = response?.message || '删除订单失败';
             if (errorMsg.includes('账单')) {
-              // 账单相关错误，显示更友好的提示
               Modal.error({
                 title: '无法删除订单',
                 content: (
@@ -224,7 +253,6 @@ export const OrderList: FC = () => {
                 ),
               });
             } else {
-              // 其他错误
               message.error(errorMsg);
             }
           }
@@ -260,19 +288,15 @@ export const OrderList: FC = () => {
     if (searchText) {
       const lowerSearchText = searchText.toLowerCase();
       result = result.filter(item => {
-        // 搜索客户名称
         const customerMatch = item.customer?.name && 
           item.customer.name.toLowerCase().includes(lowerSearchText);
         
-        // 搜索护照号码
         const passportMatch = item.customer?.passportNo && 
           item.customer.passportNo.toLowerCase().includes(lowerSearchText);
         
-        // 搜索代理名称
         const agentMatch = item.agent?.name && 
           item.agent.name.toLowerCase().includes(lowerSearchText);
         
-        // 搜索供应商名称
         const supplierMatch = item.businesses && Array.isArray(item.businesses) && 
           item.businesses.some(biz => 
             biz.supplier?.name && 
@@ -286,21 +310,11 @@ export const OrderList: FC = () => {
     return result;
   }, [orderData, filterStatus, searchText]);
 
-  const pendingOrdersCount = useMemo(() => {
-    return orderData.filter(item => item.status === 'pending').length;
-  }, [orderData]);
-  
-  const processingOrdersCount = useMemo(() => {
-    return orderData.filter(item => item.status === 'processing').length;
-  }, [orderData]);
-  
-  const completedOrdersCount = useMemo(() => {
-    return orderData.filter(item => item.status === 'completed').length;
-  }, [orderData]);
-
   const handleSearch = useCallback((value: string) => {
-    setSearchText(value);
-    setCurrentPage(1);
+    debouncedSearch(value, (searchValue) => {
+      setSearchText(searchValue);
+      setCurrentPage(1);
+    });
   }, []);
 
   const handleCreateBill = useCallback(() => {
@@ -309,11 +323,8 @@ export const OrderList: FC = () => {
       return;
     }
     
-    // 重置选中的模板
     setSelectedTemplateId(null);
-    // 获取账单样式模板
     fetchBillTemplates();
-    // 显示选择账单样式的模态框
     setBillStyleModalVisible(true);
   }, [selectedRowKeys, fetchBillTemplates]);
 
@@ -333,7 +344,6 @@ export const OrderList: FC = () => {
         message.success(`已成功创建账单 #${response.id}`);
         setSelectedRowKeys([]);
         setBillStyleModalVisible(false);
-        // 刷新订单列表
         fetchOrders();
       } else {
         message.error('创建账单失败');
@@ -347,7 +357,6 @@ export const OrderList: FC = () => {
   const rowSelection = {
     selectedRowKeys,
     onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
-    // 只允许选择未生成账单的订单
     getCheckboxProps: (record: OrderItem) => ({
       disabled: record.accountStatus === 'billed',
       name: record.id.toString(),
@@ -366,23 +375,27 @@ export const OrderList: FC = () => {
         <RadioButton value="waiting">待处理</RadioButton>
       </RadioGroup>
       
-      <Button
-        type="primary"
-        onClick={() => history.push('/order/order-list/create')}
-        style={{ margin: '0 16px' }}
-      >
-        <PlusOutlined />
-        添加订单
-      </Button>
+      <PermissionControl permissionCode="order:add">
+        <Button
+          type="primary"
+          onClick={() => history.push('/order/order-list/create')}
+          style={{ margin: '0 16px' }}
+        >
+          <PlusOutlined />
+          添加订单
+        </Button>
+      </PermissionControl>
       
-      <Button 
-        type="primary"
-        onClick={handleCreateBill} 
-        disabled={selectedRowKeys.length === 0}
-        style={{ marginRight: '16px' }}
-      >
-        创建账单 {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : ''}
-      </Button>
+      <PermissionControl customCheck={(access) => access.canCreateBill}>
+        <Button 
+          type="primary"
+          onClick={handleCreateBill} 
+          disabled={selectedRowKeys.length === 0}
+          style={{ marginRight: '16px' }}
+        >
+          创建账单 {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : ''}
+        </Button>
+      </PermissionControl>
       
       <Search 
         className={styles.extraContentSearch} 
@@ -505,25 +518,31 @@ export const OrderList: FC = () => {
       title: '操作',
       key: 'action',
       render: (_: any, record: OrderItem) => (
-        <Dropdown
-          menu={{
-            onClick: ({ key }) => handleMenuClick(key, record),
-            items: [
-              {
-                key: 'edit',
-                label: '编辑',
-              },
-              {
-                key: 'delete',
-                label: '删除',
-              },
-            ],
-          }}
+        <PermissionControl
+          anyPermissions={['order:edit', 'order:delete']}
         >
-          <a>
-            操作 <DownOutlined />
-          </a>
-        </Dropdown>
+          <Dropdown
+            menu={{
+              onClick: ({ key }) => handleMenuClick(key, record),
+              items: [
+                {
+                  key: 'edit',
+                  label: '编辑',
+                  disabled: !access.hasPermission('order:edit'),
+                },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  disabled: !access.hasPermission('order:delete'),
+                },
+              ],
+            }}
+          >
+            <a>
+              操作 <DownOutlined />
+            </a>
+          </Dropdown>
+        </PermissionControl>
       ),
     },
   ];
@@ -578,7 +597,6 @@ export const OrderList: FC = () => {
         </Card>
       </div>
 
-      {/* 账单样式选择模态框 */}
       <Modal
         title="选择账单样式"
         open={billStyleModalVisible}
