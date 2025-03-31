@@ -1,16 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { User } from '../users/entities/user.entity';
+import { DataPermissionsService } from '../permissions/data-permissions.service';
 
 @Injectable()
 export class ProductsService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    private readonly dataPermissionsService: DataPermissionsService,
   ) {}
 
   async create(createProductDto: CreateProductDto, currentUser: User) {
@@ -67,6 +69,9 @@ export class ProductsService {
     if (category) {
       queryBuilder.andWhere('category.name LIKE :category', { category: `%${category}%` });
     }
+
+    // 注意：对于产品查询，我们不应用数据范围权限过滤
+    // 所有用户都可以看到所有产品，不考虑用户的data_scope设置
 
     // 执行查询
     const [products, total] = await queryBuilder.getManyAndCount();

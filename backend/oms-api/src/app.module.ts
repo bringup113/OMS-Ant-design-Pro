@@ -18,6 +18,7 @@ import { OrdersModule } from './orders/orders.module';
 import { BillStyleModule } from './bill-style/bill-style.module';
 import { BillsModule } from './bills/bills.module';
 import { ProfitModule } from './profit/profit.module';
+import { CacheModule } from '@nestjs/cache-manager';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
 import appConfig from './config/app.config';
@@ -27,6 +28,37 @@ import appConfig from './config/app.config';
     ConfigModule.forRoot({
       isGlobal: true,
       load: [databaseConfig, jwtConfig, appConfig],
+    }),
+    CacheModule.registerAsync({
+      isGlobal: true,
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        // 默认使用内存缓存
+        const config: any = {
+          ttl: 1800, // 30分钟
+        };
+
+        // 如果配置了Redis，则使用Redis缓存
+        const redisHost = configService.get('REDIS_HOST');
+        const redisPort = configService.get('REDIS_PORT');
+        
+        if (redisHost && redisPort) {
+          try {
+            // 动态导入redisStore
+            const redisStore = require('cache-manager-redis-store');
+            config.store = redisStore;
+            config.host = redisHost;
+            config.port = redisPort;
+            console.log('使用Redis缓存，配置:', redisHost, redisPort);
+          } catch (error) {
+            console.log('Redis连接失败，回退到内存缓存:', error);
+          }
+        } else {
+          console.log('未配置Redis，使用内存缓存');
+        }
+        
+        return config;
+      },
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],

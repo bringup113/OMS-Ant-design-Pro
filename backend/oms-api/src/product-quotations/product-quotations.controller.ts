@@ -31,8 +31,9 @@ export class ProductQuotationsController {
   @Get()
   @ApiOperation({ summary: '获取报价列表' })
   @UsePipes(new ValidationPipe({ transform: true }))
-  async findAll(@Query() queryDto: QueryProductQuotationDto) {
-    const [data, total] = await this.productQuotationsService.findAll(queryDto);
+  async findAll(@Query() queryDto: QueryProductQuotationDto, @Request() req) {
+    const currentUser = req.user;
+    const [data, total] = await this.productQuotationsService.findAll(queryDto, currentUser);
     return { data, total, success: true };
   }
 

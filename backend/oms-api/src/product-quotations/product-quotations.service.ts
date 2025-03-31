@@ -7,6 +7,7 @@ import { UpdateProductQuotationDto } from './dto/update-product-quotation.dto';
 import { QueryProductQuotationDto } from './dto/query-product-quotation.dto';
 import { Product } from '../products/entities/product.entity';
 import { Organization } from '../organizations/entities/organization.entity';
+import { DataPermissionsService } from '../permissions/data-permissions.service';
 
 @Injectable()
 export class ProductQuotationsService {
@@ -17,6 +18,7 @@ export class ProductQuotationsService {
     private readonly productRepository: Repository<Product>,
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
+    private readonly dataPermissionsService: DataPermissionsService,
   ) {}
 
   async create(createProductQuotationDto: CreateProductQuotationDto, userId?: number): Promise<ProductQuotation> {
@@ -83,38 +85,51 @@ export class ProductQuotationsService {
     return this.productQuotationRepository.save(quotation);
   }
 
-  async findAll(queryDto: QueryProductQuotationDto): Promise<[ProductQuotation[], number]> {
+  async findAll(queryDto: QueryProductQuotationDto, currentUser?: any): Promise<[ProductQuotation[], number]> {
     const { productId, supplierId, status, is_latest, current = 1, pageSize = 10 } = queryDto;
     const skip = (current - 1) * pageSize;
     const take = pageSize;
 
-    const whereConditions: FindOptionsWhere<ProductQuotation> = {};
+    // 创建查询构建器
+    const queryBuilder = this.productQuotationRepository
+      .createQueryBuilder('quotation')
+      .leftJoinAndSelect('quotation.product', 'product')
+      .leftJoinAndSelect('quotation.supplier', 'supplier')
+      .leftJoinAndSelect('quotation.createdByUser', 'createdByUser')
+      .skip(skip)
+      .take(take)
+      .orderBy('quotation.createdAt', 'DESC');
 
+    // 添加过滤条件
     if (productId) {
-      whereConditions.productId = productId;
+      queryBuilder.andWhere('quotation.productId = :productId', { productId });
     }
 
     if (supplierId) {
-      whereConditions.supplierId = supplierId;
+      queryBuilder.andWhere('quotation.supplierId = :supplierId', { supplierId });
     }
 
     if (status) {
-      whereConditions.status = status;
+      queryBuilder.andWhere('quotation.status = :status', { status });
     }
 
     if (is_latest !== undefined) {
-      whereConditions.isLatest = is_latest;
+      queryBuilder.andWhere('quotation.isLatest = :isLatest', { isLatest: is_latest });
     }
 
-    const [quotations, total] = await this.productQuotationRepository.findAndCount({
-      where: whereConditions,
-      relations: ['product', 'supplier', 'createdByUser'],
-      skip,
-      take,
-      order: {
-        createdAt: 'DESC',
-      },
-    });
+    // 添加数据权限过滤
+    if (currentUser) {
+      // 获取数据权限过滤条件
+      const dataPermission = await this.dataPermissionsService.getDataFilter(currentUser, 'quotation');
+      
+      // 应用数据权限过滤
+      if (dataPermission && dataPermission.filter) {
+        queryBuilder.andWhere(dataPermission.filter, dataPermission.params);
+      }
+    }
+
+    // 执行查询
+    const [quotations, total] = await queryBuilder.getManyAndCount();
 
     return [quotations, total];
   }

@@ -40,7 +40,10 @@ export class Bill {
   orders: Order[];
   
   // 付款记录关联
-  @OneToMany(() => PaymentRecord, paymentRecord => paymentRecord.bill)
+  @OneToMany(() => PaymentRecord, paymentRecord => paymentRecord.bill, {
+    cascade: true, // 级联所有操作
+    eager: true,   // 自动加载关联数据
+  })
   paymentRecords: PaymentRecord[];
   
   // 计算已付金额（非持久化字段）

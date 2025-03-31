@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, Put, UseGuards, Request, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, Put, UseGuards, Request, ParseIntPipe, Req } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateOrderCommentDto } from './dto/create-order-comment.dto';
 import { UpdateBusinessStatusDto } from './dto/update-business-status.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiOperation, ApiParam, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { GetOrdersDto } from './dto/get-orders.dto';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
@@ -17,9 +18,45 @@ export class OrdersController {
   }
 
   @Get()
-  async findAll(@Query() query) {
-    const { page = 1, limit = 10, ...filters } = query;
-    return this.ordersService.findAll(+page, +limit, filters);
+  async findAll(
+    @Req() request: any,
+    @Query('current') current?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('count') count?: string,
+    @Query('keyword') keyword?: string,
+    @Query('status') status?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('customerId') customerId?: string,
+    @Query('billId') billId?: string,
+  ) {
+    console.log('[OrdersController] 获取订单列表, 查询参数:', {
+      current, page, pageSize, count, keyword, status, startDate, endDate, customerId, billId
+    });
+    
+    // 构建查询参数，兼容page和current
+    const query: GetOrdersDto = {
+      current: current ? parseInt(current, 10) : page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : count ? parseInt(count, 10) : undefined,
+      keyword,
+      status,
+      startDate,
+      endDate,
+      customerId: customerId ? parseInt(customerId, 10) : undefined,
+      billId,
+    };
+    
+    // 从请求中获取用户信息
+    const user = request.user;
+    console.log('查询订单列表的用户信息:', {
+      id: user.sub || user.id,
+      username: user.username,
+      data_scope: user.data_scope,
+      organizationId: user.organizationId || user.organization_id
+    });
+    
+    return this.ordersService.findAll(query, user);
   }
 
   @Get(':id')
@@ -44,6 +81,14 @@ export class OrdersController {
     @Body() updateBusinessStatusDto: UpdateBusinessStatusDto
   ) {
     return this.ordersService.updateOrderBusinessStatus(orderId, businessId, updateBusinessStatusDto.status);
+  }
+
+  @Patch(':id/status')
+  async updateOrderStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateStatusDto: { status: string }
+  ) {
+    return this.ordersService.updateOrderStatus(id, updateStatusDto.status);
   }
 
   @Post(':id/comments')

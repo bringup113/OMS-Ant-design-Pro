@@ -1,5 +1,6 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { Visa } from './visa.entity';
+import { Organization } from '../../organizations/entities/organization.entity';
 
 @Entity('customers')
 export class Customer {
@@ -26,6 +27,13 @@ export class Customer {
 
   @Column({ type: 'varchar', length: 10, nullable: true })
   expiryDate: string | null;
+
+  @Column({ name: 'organization_id' })
+  organizationId: number;
+
+  @ManyToOne(() => Organization)
+  @JoinColumn({ name: 'organization_id' })
+  organization: Organization;
 
   @OneToMany(() => Visa, visa => visa.customer)
   visas: Visa[];

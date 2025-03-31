@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpCode, HttpStatus, UseGuards, Req } from '@nestjs/common';
 import { BillsService } from './bills.service';
 import { CreateBillDto } from './dto/create-bill.dto';
 import { UpdateBillDto } from './dto/update-bill.dto';
@@ -27,8 +27,9 @@ export class BillsController {
   @Get()
   @ApiOperation({ summary: '获取所有账单' })
   @ApiResponse({ status: 200, description: '获取成功' })
-  findAll() {
-    return this.billsService.findAll();
+  async findAll(@Req() request: any) {
+    const user = request.user;
+    return this.billsService.findAll(user);
   }
 
   @Get(':id')
@@ -51,8 +52,18 @@ export class BillsController {
   @ApiOperation({ summary: '删除账单' })
   @ApiResponse({ status: 200, description: '删除成功' })
   @ApiResponse({ status: 404, description: '账单不存在' })
-  remove(@Param('id') id: string) {
-    return this.billsService.remove(+id);
+  @ApiResponse({ status: 500, description: '服务器内部错误' })
+  async remove(@Param('id') id: string) {
+    try {
+      console.log(`收到删除账单 #${id} 的请求`);
+      const result = await this.billsService.remove(+id);
+      return { success: true, message: `账单 #${id} 删除成功` };
+    } catch (error) {
+      console.error(`控制器捕获删除账单错误:`, error);
+      
+      // 重新抛出错误，让全局异常过滤器处理
+      throw error;
+    }
   }
 
   @Get(':id/orders')

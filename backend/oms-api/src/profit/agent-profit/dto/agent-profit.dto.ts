@@ -8,18 +8,6 @@ export class GetAgentProfitDto {
 
   @IsOptional()
   @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-
-  @IsOptional()
-  @IsString()
-  status?: string;
-
-  @IsOptional()
-  @IsString()
   settlementStatus?: string;
   
   @IsOptional()
@@ -34,18 +22,14 @@ export class GetAgentProfitDto {
 export class AgentProfitResponseDto {
   id: number;
   agentName: string;
-  productName: string;
-  orderId?: number;
-  orderBusinessId?: number;
+  orderId: number;
+  customerName: string;
   agentPrice: number;
   salePrice: number;
   profit: number;
   profitRate: number;
   commissionRate: number;
   commission: number;
-  orderCount: number;
-  startDate: string;
-  endDate: string;
   createdAt: string;
   settlementStatus: string;
 }

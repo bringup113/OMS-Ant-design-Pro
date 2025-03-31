@@ -18,7 +18,7 @@ export class CreateUserDto {
   name: string;
 
   @IsOptional()
-  @IsEmail({}, { message: '邮箱格式不正确' })
+  @IsString({ message: '邮箱必须是字符串' })
   email?: string;
 
   @IsOptional()

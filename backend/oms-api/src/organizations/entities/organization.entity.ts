@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, ManyToMany, JoinTable } from 'typeorm';
 import { Role } from '../../roles/entities/role.entity';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('organizations')
 export class Organization {
@@ -44,6 +45,9 @@ export class Organization {
     inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
   })
   roles: Role[];
+
+  @OneToMany(() => User, user => user.organization)
+  users: User[];
 
   @CreateDateColumn()
   created_at: Date;

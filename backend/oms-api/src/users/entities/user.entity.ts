@@ -48,4 +48,10 @@ export class User {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updated_at: Date;
+
+  @Column({ nullable: true })
+  token_expires_at: Date;
+
+  @Column({ nullable: true })
+  last_token_refresh: Date;
 } 

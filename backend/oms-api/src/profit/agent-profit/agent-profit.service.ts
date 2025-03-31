@@ -17,7 +17,7 @@ export class AgentProfitService {
   ) {}
 
   async findAll(query: GetAgentProfitDto) {
-    const { keyword, startDate, endDate, settlementStatus } = query;
+    const { keyword, settlementStatus } = query;
     const take = query.pageSize ? +query.pageSize : 10;
     const skip = query.current && query.pageSize ? (+query.current - 1) * +query.pageSize : 0;
 
@@ -27,21 +27,13 @@ export class AgentProfitService {
       whereConditions.agent = { name: Like(`%${keyword}%`) };
     }
 
-    if (startDate) {
-      whereConditions.startDate = startDate;
-    }
-
-    if (endDate) {
-      whereConditions.endDate = endDate;
-    }
-
     if (settlementStatus) {
       whereConditions.settlementStatus = settlementStatus;
     }
 
     const [profits, total] = await this.agentProfitRepository.findAndCount({
       where: whereConditions,
-      relations: ['agent', 'product'],
+      relations: ['agent', 'order', 'order.customer'],
       take,
       skip,
       order: {
@@ -85,18 +77,13 @@ export class AgentProfitService {
   // 新增创建代理商利润记录的方法
   async createAgentProfit(data: {
     agentId: number;
-    productId: number;
-    orderId?: number;
-    orderBusinessId?: number;
+    orderId: number;
     agentPrice: number;
     salePrice: number;
     profit: number;
     profitRate: number;
     commissionRate: number;
     commission: number;
-    orderCount: number;
-    startDate: Date;
-    endDate: Date;
     settlementStatus: string;
   }) {
     const agentProfit = this.agentProfitRepository.create(data);
@@ -107,18 +94,14 @@ export class AgentProfitService {
     return {
       id: profit.id,
       agentName: profit.agent?.name || '',
-      productName: profit.product?.name || '',
       orderId: profit.orderId,
-      orderBusinessId: profit.orderBusinessId,
+      customerName: profit.order?.customer?.name || '',
       agentPrice: Number(profit.agentPrice),
       salePrice: Number(profit.salePrice),
       profit: Number(profit.profit),
       profitRate: Number(profit.profitRate),
       commissionRate: Number(profit.commissionRate),
       commission: Number(profit.commission),
-      orderCount: profit.orderCount,
-      startDate: formatDate(profit.startDate),
-      endDate: formatDate(profit.endDate),
       createdAt: formatDate(profit.createdAt),
       settlementStatus: profit.settlementStatus,
     };

@@ -8,6 +8,7 @@ import { UpdateBillDto } from './dto/update-bill.dto';
 import { CreatePaymentRecordDto } from './dto/create-payment-record.dto';
 import { Order } from '../orders/entities/order.entity';
 import { BillStyleTemplate } from '../bill-style/entities/bill-style-template.entity';
+import { DataPermissionsService } from '../permissions/data-permissions.service';
 
 // 定义账单状态类型
 type BillStatus = 'paid' | 'partially_paid' | 'unpaid';
@@ -24,6 +25,7 @@ export class BillsService {
     @InjectRepository(PaymentRecord)
     private paymentRecordRepository: Repository<PaymentRecord>,
     private dataSource: DataSource,
+    private dataPermissionsService: DataPermissionsService,
   ) {}
 
   async create(createBillDto: CreateBillDto, userId: number): Promise<Bill> {
@@ -41,7 +43,7 @@ export class BillsService {
       // 2. 检查订单是否存在且未生成账单
       const orders = await manager.find(Order, {
         where: { id: In(createBillDto.orderIds) },
-        relations: ['customer'],
+        relations: ['customer', 'supplier'],  // 添加supplier关联
       });
 
       if (!orders || orders.length === 0) {
@@ -56,6 +58,12 @@ export class BillsService {
       const billedOrders = orders.filter(order => order.accountStatus === 'billed');
       if (billedOrders.length > 0) {
         throw new BadRequestException(`订单 #${billedOrders.map(o => o.id).join(', ')} 已生成账单`);
+      }
+
+      // 检查所有订单是否来自同一个供应商
+      const supplierIds = [...new Set(orders.map(order => order.supplierId))];
+      if (supplierIds.length > 1) {
+        throw new BadRequestException('不能为来自不同供应商的订单创建同一个账单');
       }
 
       // 3. 计算账单总金额
@@ -77,30 +85,39 @@ export class BillsService {
       // 5. 保存账单
       const savedBill = await manager.save(bill);
 
-      // 6. 更新所有订单的账单状态
+      // 6. 更新订单的账单关联和状态
       for (const order of orders) {
-        order.accountStatus = 'billed';
         order.billId = savedBill.id;
-        
-        // 确保订单支付状态与账单状态一致
-        // 如果账单为已付款，则订单也应为已支付
-        if (savedBill.status === 'paid') {
-          order.paymentStatus = 'paid';
-        }
-        
-        await manager.save(Order, order);
+        order.accountStatus = 'billed';
+        await manager.save(order);
       }
 
       return savedBill;
     });
   }
 
-  async findAll(): Promise<Bill[]> {
-    // 查询所有账单，并包含关联订单信息
-    const bills = await this.billRepository.find({
-      order: { createdAt: 'DESC' },
-      relations: ['orders', 'orders.customer', 'paymentRecords'],
-    });
+  async findAll(user?: any): Promise<Bill[]> {
+    // 创建查询构建器
+    const queryBuilder = this.billRepository.createQueryBuilder('bill')
+      .leftJoinAndSelect('bill.orders', 'order')
+      .leftJoinAndSelect('order.customer', 'customer')
+      .innerJoinAndSelect('order.supplier', 'supplier')  // 使用innerJoin确保只返回有供应商的订单
+      .leftJoinAndSelect('bill.paymentRecords', 'paymentRecord')
+      .orderBy('bill.createdAt', 'DESC');
+    
+    // 添加数据权限过滤
+    if (user) {
+      // 获取数据权限过滤条件
+      const dataPermission = await this.dataPermissionsService.getDataFilter(user, 'bill');
+      
+      // 应用数据权限过滤
+      if (dataPermission && dataPermission.filter) {
+        queryBuilder.andWhere(dataPermission.filter, dataPermission.params);
+      }
+    }
+    
+    // 执行查询
+    const bills = await queryBuilder.getMany();
 
     // 计算每个账单的已付款金额
     const billsWithPayments = await Promise.all(
@@ -112,10 +129,13 @@ export class BillsService {
   }
 
   async findOne(id: number): Promise<Bill> {
-    const bill = await this.billRepository.findOne({
-      where: { id },
-      relations: ['orders', 'orders.customer', 'paymentRecords'],
-    });
+    const bill = await this.billRepository.createQueryBuilder('bill')
+      .leftJoinAndSelect('bill.orders', 'order')
+      .leftJoinAndSelect('order.customer', 'customer')
+      .innerJoinAndSelect('order.supplier', 'supplier')  // 使用innerJoin确保只返回有供应商的订单
+      .leftJoinAndSelect('bill.paymentRecords', 'paymentRecord')
+      .where('bill.id = :id', { id })
+      .getOne();
 
     if (!bill) {
       throw new NotFoundException(`账单 #${id} 不存在`);
@@ -166,30 +186,70 @@ export class BillsService {
   }
 
   async remove(id: number): Promise<void> {
-    const bill = await this.findOne(id);
-    
-    // 使用事务进行删除操作
-    await this.dataSource.transaction(async (manager: EntityManager) => {
-      // 1. 先将相关订单的账单状态恢复为未生成账单
-      const orders = await manager.find(Order, {
-        where: { billId: id },
+    try {
+      console.log(`开始删除账单 #${id}`);
+      
+      // 先检查账单是否存在
+      const bill = await this.billRepository.findOne({
+        where: { id },
+        relations: ['paymentRecords'] // 加载付款记录关系
       });
-      console.log(`删除账单 #${id}，找到 ${orders.length} 个关联订单需要重置状态`);
-
-      for (const order of orders) {
-        order.accountStatus = 'unbilled';
-        order.billId = null;
-        
-        // 同时更新订单支付状态为未支付
-        order.paymentStatus = 'unpaid';
-        console.log(`重置订单 #${order.id} 的账单关联和支付状态`);
-        
-        await manager.save(Order, order);
+      
+      if (!bill) {
+        throw new NotFoundException(`账单 #${id} 不存在`);
       }
+      
+      console.log(`找到账单 #${id}，状态: ${bill.status}, 付款记录数: ${bill.paymentRecords?.length || 0}`);
+      
+      // 使用事务进行删除操作
+      await this.dataSource.transaction(async (manager: EntityManager) => {
+        try {
+          // 1. 先删除所有关联的付款记录
+          if (bill.paymentRecords && bill.paymentRecords.length > 0) {
+            console.log(`删除账单 #${id} 的 ${bill.paymentRecords.length} 条付款记录`);
+            await manager.remove(bill.paymentRecords);
+          } else {
+            // 即使没有关联的付款记录，也尝试查询并删除可能存在的付款记录
+            const paymentRecords = await manager.find(PaymentRecord, {
+              where: { billId: id }
+            });
+            
+            if (paymentRecords.length > 0) {
+              console.log(`未在账单关系中找到，但通过查询找到 ${paymentRecords.length} 条付款记录，正在删除...`);
+              await manager.remove(paymentRecords);
+            }
+          }
+          
+          // 2. 将相关订单的账单状态恢复为未生成账单
+          const orders = await manager.find(Order, {
+            where: { billId: id },
+          });
+          console.log(`删除账单 #${id}，找到 ${orders.length} 个关联订单需要重置状态`);
 
-      // 2. 删除账单 (付款记录会通过级联删除自动删除)
-      await manager.remove(bill);
-    });
+          for (const order of orders) {
+            console.log(`重置订单 #${order.id} 的账单关联和支付状态`);
+            order.accountStatus = 'unbilled';
+            order.billId = null;
+            
+            // 同时更新订单支付状态为未支付
+            order.paymentStatus = 'unpaid';
+            
+            await manager.save(Order, order);
+          }
+
+          // 3. 删除账单本身
+          console.log(`正在删除账单 #${id}`);
+          await manager.remove(bill);
+          console.log(`账单 #${id} 删除成功`);
+        } catch (error) {
+          console.error(`事务内删除账单失败:`, error);
+          throw error; // 重新抛出错误以触发事务回滚
+        }
+      });
+    } catch (error) {
+      console.error(`删除账单 #${id} 失败:`, error.stack || error.message || error);
+      throw error; // 将错误传播给控制器
+    }
   }
 
   async getOrdersByBillId(billId: number): Promise<Order[]> {
@@ -202,7 +262,7 @@ export class BillsService {
         'customer',
         'businesses',
         'businesses.product',
-        'businesses.supplier'
+        'supplier'  // 直接从订单表关联供应商
       ],
       order: {
         id: 'ASC',

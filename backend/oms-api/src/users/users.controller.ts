@@ -50,4 +50,19 @@ export class UsersController {
   remove(@Param('id') id: string) {
     return this.usersService.remove(+id);
   }
+
+  @Patch(':id/data-scope')
+  async updateDataScope(@Param('id') id: string, @Body() body: { data_scope: string }) {
+    console.log('收到更新用户数据范围请求, 用户ID:', id);
+    console.log('数据范围:', body.data_scope);
+    
+    try {
+      const result = await this.usersService.updateDataScope(+id, body.data_scope);
+      console.log('更新用户数据范围成功');
+      return result;
+    } catch (error) {
+      console.error('更新用户数据范围失败:', error);
+      throw error;
+    }
+  }
 } 

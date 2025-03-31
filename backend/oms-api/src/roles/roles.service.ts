@@ -6,6 +6,8 @@ import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { Permission } from '../permissions/entities/permission.entity';
 import { Organization } from '../organizations/entities/organization.entity';
+import { PermissionsAuditService } from '../permissions/permissions-audit.service';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable()
 export class RolesService {
@@ -16,6 +18,8 @@ export class RolesService {
     private permissionsRepository: Repository<Permission>,
     @InjectRepository(Organization)
     private organizationsRepository: Repository<Organization>,
+    private permissionsAuditService: PermissionsAuditService,
+    private authService: AuthService,
   ) {}
 
   async create(createRoleDto: CreateRoleDto): Promise<any> {
@@ -262,5 +266,189 @@ export class RolesService {
       permissions: permissions,
       organizations: organizations,
     };
+  }
+
+  // 修改角色权限时记录审计日志
+  async updateRolePermissions(id: number, permissionIds: number[], req: any) {
+    const role = await this.rolesRepository.findOne({
+      where: { id },
+      relations: ['permissions']
+    });
+
+    if (!role) {
+      throw new NotFoundException(`ID为${id}的角色不存在`);
+    }
+
+    // 保存旧权限用于审计日志
+    const oldPermissions = [...role.permissions];
+    console.log('角色原有权限数量:', oldPermissions.length);
+    
+    try {
+      // 使用原生SQL删除所有现有权限
+      await this.rolesRepository.query(
+        'DELETE FROM role_permissions WHERE role_id = $1',
+        [id]
+      );
+      console.log('已清除角色现有权限');
+      
+      // 如果没有新权限，直接返回
+      if (!permissionIds || permissionIds.length === 0) {
+        console.log('没有新权限需要添加');
+        
+        // 重新加载角色以确保权限已被清除
+        const updatedRole = await this.rolesRepository.findOne({
+          where: { id },
+          relations: ['permissions']
+        });
+        
+        if (!updatedRole) {
+          throw new NotFoundException(`清除权限后无法找到ID为${id}的角色`);
+        }
+        
+        // 记录审计日志
+        await this.permissionsAuditService.logPermissionChange(
+          req,
+          'MODIFY',
+          `清除角色"${role.name}"的所有权限`,
+          {
+            roleId: role.id,
+            oldValue: oldPermissions.map(p => ({ id: p.id, code: p.code, name: p.name })),
+            newValue: [],
+          }
+        );
+        
+        return updatedRole;
+      }
+      
+      // 使用原生SQL插入新权限
+      const values = permissionIds.map(permId => `(${id}, ${permId})`).join(',');
+      if (values) {
+        await this.rolesRepository.query(
+          `INSERT INTO role_permissions (role_id, permission_id) VALUES ${values}`
+        );
+        console.log('已添加新权限:', permissionIds.length, '个');
+      }
+      
+      // 重新加载角色以获取更新后的权限
+      const updatedRole = await this.rolesRepository.findOne({
+        where: { id },
+        relations: ['permissions']
+      });
+      
+      if (!updatedRole) {
+        throw new NotFoundException(`更新后无法找到ID为${id}的角色`);
+      }
+      
+      console.log('更新后角色权限数量:', updatedRole.permissions ? updatedRole.permissions.length : 0);
+      
+      // 重新获取所有已添加的权限详情用于审计日志
+      const newPermissions = await this.permissionsRepository.find({
+        where: { id: In(permissionIds) }
+      });
+      
+      // 记录审计日志
+      await this.permissionsAuditService.logPermissionChange(
+        req,
+        'MODIFY',
+        `更新角色"${role.name}"的权限配置`,
+        {
+          roleId: role.id,
+          oldValue: oldPermissions.map(p => ({ id: p.id, code: p.code, name: p.name })),
+          newValue: newPermissions.map(p => ({ id: p.id, code: p.code, name: p.name })),
+        }
+      );
+      
+      // 检查受影响用户的权限缓存
+      const affectedUsers = await this.findUsersByRoleId(id);
+      for (const user of affectedUsers) {
+        await this.authService.clearUserPermissionsCache(user.id);
+      }
+      
+      return updatedRole;
+    } catch (error) {
+      console.error('更新角色权限失败:', error);
+      throw error;
+    }
+  }
+
+  // 根据权限代码获取权限ID
+  async getPermissionIdsByCodes(permissionCodes: string[]): Promise<Permission[]> {
+    if (!permissionCodes || permissionCodes.length === 0) {
+      console.log('没有提供权限代码');
+      return [];
+    }
+    
+    console.log('查询权限代码:', permissionCodes);
+    
+    try {
+      const permissions = await this.permissionsRepository.find({
+        where: { code: In(permissionCodes) },
+      });
+      
+      console.log(`根据${permissionCodes.length}个权限代码找到${permissions.length}个权限`);
+      
+      // 检查是否有未找到的权限代码
+      if (permissions.length < permissionCodes.length) {
+        const foundCodes = permissions.map(p => p.code);
+        const notFoundCodes = permissionCodes.filter(code => !foundCodes.includes(code));
+        console.warn('未找到以下权限代码:', notFoundCodes);
+      }
+      
+      return permissions;
+    } catch (error) {
+      console.error('查询权限失败:', error);
+      throw error;
+    }
+  }
+
+  // 查找拥有特定角色的所有用户
+  private async findUsersByRoleId(roleId: number) {
+    const role = await this.rolesRepository.findOne({
+      where: { id: roleId },
+      relations: ['organizations', 'organizations.users']
+    });
+
+    if (!role || !role.organizations) {
+      return [];
+    }
+
+    // 收集所有组织中的用户
+    const users: any[] = [];
+    for (const org of role.organizations) {
+      // 检查org.users是否存在
+      const usersInOrg = await this.organizationsRepository
+        .createQueryBuilder('org')
+        .leftJoinAndSelect('org.users', 'users')
+        .where('org.id = :orgId', { orgId: org.id })
+        .getOne();
+        
+      if (usersInOrg && usersInOrg.users) {
+        users.push(...usersInOrg.users);
+      }
+    }
+
+    return users;
+  }
+
+  // 查找拥有特定角色的所有用户，并清除他们的权限缓存
+  async clearCacheForUsersWithRole(roleId: number): Promise<void> {
+    console.log(`清除角色ID为${roleId}的所有用户的权限缓存`);
+    
+    try {
+      // 查找拥有该角色的所有用户
+      const affectedUsers = await this.findUsersByRoleId(roleId);
+      console.log(`找到 ${affectedUsers.length} 个受影响的用户`);
+      
+      // 清除每个用户的权限缓存
+      for (const user of affectedUsers) {
+        console.log(`清除用户 ${user.id}(${user.username}) 的权限缓存`);
+        await this.authService.clearUserPermissionsCache(user.id);
+      }
+      
+      console.log('所有用户权限缓存已清除');
+    } catch (error) {
+      console.error('清除用户权限缓存失败:', error);
+      throw error;
+    }
   }
 } 

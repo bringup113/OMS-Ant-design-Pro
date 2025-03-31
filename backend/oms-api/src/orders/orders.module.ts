@@ -9,12 +9,18 @@ import { CustomersModule } from '../customers/customers.module';
 import { UsersModule } from '../users/users.module';
 import { ProfitModule } from '../profit/profit.module';
 import { Agent } from '../agents/entities/agent.entity';
+import { PermissionsModule } from '../permissions/permissions.module';
+import { DataPermissionsModule } from '../permissions/data-permissions.module';
+import { Organization } from '../organizations/entities/organization.entity';
+import { Product } from '../product/entities/product.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, OrderBusiness, OrderComment, Agent]),
+    TypeOrmModule.forFeature([Order, OrderBusiness, OrderComment, Agent, Organization, Product]),
     CustomersModule,
     UsersModule,
+    PermissionsModule,
+    DataPermissionsModule,
     forwardRef(() => ProfitModule),
   ],
   controllers: [OrdersController],

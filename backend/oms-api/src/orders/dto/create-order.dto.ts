@@ -9,10 +9,6 @@ export class CreateOrderBusinessDto {
 
   @IsNotEmpty()
   @IsNumber()
-  supplierId: number;
-
-  @IsNotEmpty()
-  @IsNumber()
   costPrice: number;
 
   @IsOptional()
@@ -36,6 +32,10 @@ export class CreateOrderDto {
   @IsOptional()
   @IsNumber()
   customerId?: number;
+
+  @IsNotEmpty()
+  @IsNumber()
+  supplierId: number;
 
   @IsNotEmpty()
   @IsNumber()

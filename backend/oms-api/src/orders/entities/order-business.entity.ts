@@ -1,7 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { Order } from './order.entity';
 import { Product } from '../../products/entities/product.entity';
-import { Organization } from '../../organizations/entities/organization.entity';
 
 @Entity('order_businesses')
 export class OrderBusiness {
@@ -21,13 +20,6 @@ export class OrderBusiness {
   @ManyToOne(() => Product)
   @JoinColumn({ name: 'product_id' })
   product: Product;
-
-  @Column({ name: 'supplier_id' })
-  supplierId: number;
-
-  @ManyToOne(() => Organization)
-  @JoinColumn({ name: 'supplier_id' })
-  supplier: Organization;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, name: 'cost_price' })
   costPrice: number;

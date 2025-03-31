@@ -2,19 +2,18 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AgentProfitController } from './agent-profit/agent-profit.controller';
 import { AgentProfitService } from './agent-profit/agent-profit.service';
-import { SupplierProfitController } from './supplier-profit/supplier-profit.controller';
-import { SupplierProfitService } from './supplier-profit/supplier-profit.service';
 import { AgentProfit } from './agent-profit/entities/agent-profit.entity';
-import { SupplierProfit } from './supplier-profit/entities/supplier-profit.entity';
 import { OrdersModule } from '../orders/orders.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AgentProfit, SupplierProfit]),
+    TypeOrmModule.forFeature([AgentProfit]),
     forwardRef(() => OrdersModule),
+    AuthModule,
   ],
-  controllers: [AgentProfitController, SupplierProfitController],
-  providers: [AgentProfitService, SupplierProfitService],
-  exports: [AgentProfitService, SupplierProfitService],
+  controllers: [AgentProfitController],
+  providers: [AgentProfitService],
+  exports: [AgentProfitService],
 })
 export class ProfitModule {} 

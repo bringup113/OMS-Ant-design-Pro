@@ -1,29 +1,28 @@
 import { Injectable, NotFoundException, BadRequestException, forwardRef, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Brackets } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { Order } from './entities/order.entity';
 import { OrderBusiness } from './entities/order-business.entity';
 import { OrderComment } from './entities/order-comment.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { CustomersService } from '../customers/customers.service';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { CreateOrderCommentDto } from './dto/create-order-comment.dto';
+import { GetOrdersDto } from './dto/get-orders.dto';
+import { CustomersService } from '../customers/customers.service';
 import { UsersService } from '../users/users.service';
-import { AgentProfitService } from '../profit/agent-profit/agent-profit.service';
-import { SupplierProfitService } from '../profit/supplier-profit/supplier-profit.service';
-import { Agent } from '../agents/entities/agent.entity';
 import { Organization } from '../organizations/entities/organization.entity';
 import { AgentProfit } from '../profit/agent-profit/entities/agent-profit.entity';
-import { SupplierProfit } from '../profit/supplier-profit/entities/supplier-profit.entity';
-import { DataPermissionsService } from '../permissions/data-permissions.service';
-import { GetOrdersDto } from './dto/get-orders.dto';
+import { AgentProfitService } from '../profit/agent-profit/agent-profit.service';
 import { User } from '../users/entities/user.entity';
 import { Product } from '../products/entities/product.entity';
+import { Agent } from '../agents/entities/agent.entity';
+import { DataPermissionsService } from '../permissions/data-permissions.service';
 
 @Injectable()
 export class OrdersService {
   constructor(
     @InjectRepository(Order)
-    private readonly orderRepository: Repository<Order>,
+    private readonly ordersRepository: Repository<Order>,
     @InjectRepository(OrderBusiness)
     private readonly orderBusinessRepository: Repository<OrderBusiness>,
     @InjectRepository(OrderComment)
@@ -33,15 +32,9 @@ export class OrdersService {
     private dataSource: DataSource,
     @Inject(forwardRef(() => AgentProfitService))
     private readonly agentProfitService: AgentProfitService,
-    @Inject(forwardRef(() => SupplierProfitService))
-    private readonly supplierProfitService: SupplierProfitService,
-    @InjectRepository(Agent)
-    private readonly agentsRepository: Repository<Agent>,
-    private readonly dataPermissionsService: DataPermissionsService,
-    @InjectRepository(Organization)
-    private readonly organizationRepository: Repository<Organization>,
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    private readonly dataPermissionsService: DataPermissionsService,
   ) {}
 
   async create(createOrderDto: CreateOrderDto, user: any) {
@@ -64,6 +57,7 @@ export class OrdersService {
       // 创建订单
       const orderData = {
         customerId,
+        supplierId: createOrderDto.supplierId,
         totalAmount: createOrderDto.totalAmount,
         paymentStatus: createOrderDto.paymentStatus,
         accountStatus: createOrderDto.accountStatus,
@@ -72,8 +66,8 @@ export class OrdersService {
         createdBy: user?.id,
       };
 
-      const order = this.orderRepository.create(orderData);
-      const savedOrder = await this.orderRepository.save(order);
+      const order = this.ordersRepository.create(orderData);
+      const savedOrder = await this.ordersRepository.save(order);
 
       // 创建订单业务信息（多条）
       const orderBusinesses: OrderBusiness[] = [];
@@ -81,7 +75,6 @@ export class OrdersService {
         const businessData = {
           orderId: savedOrder.id,
           productId: business.productId,
-          supplierId: business.supplierId,
           costPrice: business.costPrice,
           agentPrice: business.agentPrice,
           salePrice: business.salePrice,
@@ -113,108 +106,161 @@ export class OrdersService {
 
   async findAll(query: GetOrdersDto, user: User) {
     try {
-      console.log('开始查询订单列表，参数:', JSON.stringify(query));
-      
-      const { keyword, status, startDate, endDate, customerId, billId } = query;
-      const take = query.pageSize ? +query.pageSize : 10;
-      const skip = query.current && query.pageSize ? (+query.current - 1) * +query.pageSize : 0;
+      const { 
+        current = 1, 
+        pageSize = 10, 
+        status, 
+        paymentStatus,
+        accountStatus,
+        keyword,
+        startDate,
+        endDate,
+        customerId,
+        agentId,
+        supplierId
+      } = query;
 
-      // 获取数据权限过滤条件
-      const dataPermission = await this.dataPermissionsService.getDataFilter(user, 'order');
-      console.log('获取到的数据权限过滤条件:', {
-        filter: dataPermission.filter,
-        params: dataPermission.params
-      });
-      
-      // 使用标准的find方法而不是queryBuilder，避免复杂JOIN带来的问题
-      const findOptions: any = {
-        skip,
-        take,
-        order: { createdAt: 'DESC' },
-        relations: ['customer', 'businesses', 'businesses.product', 'businesses.supplier', 'agent']
-      };
-      
-      // 构建查询条件
-      const whereConditions: any = {};
-      
-      // 应用状态筛选
+      const skip = (current - 1) * pageSize;
+      const take = pageSize;
+
+      // 创建查询构建器
+      const queryBuilder = this.ordersRepository.createQueryBuilder('order')
+        .leftJoinAndSelect('order.customer', 'customer')
+        .leftJoinAndSelect('order.agent', 'agent')
+        .leftJoinAndSelect('order.supplier', 'supplier')
+        .leftJoinAndSelect('order.businesses', 'businesses')
+        .leftJoinAndSelect('businesses.product', 'product')
+        .leftJoinAndSelect('order.bill', 'bill')
+        .orderBy('order.createdAt', 'DESC');
+
+      // 添加过滤条件
       if (status) {
-        whereConditions.status = status;
-      }
-      
-      // 应用客户筛选
-      if (customerId) {
-        whereConditions.customerId = customerId;
-      }
-      
-      // 应用账单筛选
-      if (billId) {
-        whereConditions.billId = billId;
+        queryBuilder.andWhere('order.status = :status', { status });
       }
 
-      // 添加日期范围筛选
-      if (startDate || endDate) {
-        whereConditions.createdAt = {};
-        if (startDate) {
-          whereConditions.createdAt.gte = new Date(startDate);
-        }
-        if (endDate) {
-          whereConditions.createdAt.lte = new Date(endDate);
+      if (paymentStatus) {
+        queryBuilder.andWhere('order.paymentStatus = :paymentStatus', { paymentStatus });
+      }
+
+      if (accountStatus) {
+        queryBuilder.andWhere('order.accountStatus = :accountStatus', { accountStatus });
+      }
+
+      if (customerId) {
+        queryBuilder.andWhere('order.customerId = :customerId', { customerId });
+      }
+
+      if (agentId) {
+        queryBuilder.andWhere('order.agentId = :agentId', { agentId });
+      }
+
+      if (supplierId) {
+        queryBuilder.andWhere('order.supplierId = :supplierId', { supplierId });
+      }
+
+      if (startDate) {
+        queryBuilder.andWhere('order.createdAt >= :startDate', { startDate });
+      }
+
+      if (endDate) {
+        queryBuilder.andWhere('order.createdAt <= :endDate', { endDate });
+      }
+
+      // 添加数据权限过滤
+      if (user) {
+        // 获取数据权限过滤条件
+        const dataPermission = await this.dataPermissionsService.getDataFilter(user, 'order');
+        
+        // 应用数据权限过滤
+        if (dataPermission && dataPermission.filter) {
+          queryBuilder.andWhere(dataPermission.filter, dataPermission.params);
         }
       }
-      
-      // 如果有数据权限过滤，并且不是"全部数据"
-      if (dataPermission.filter && dataPermission.filter !== '1=1') {
-        if (dataPermission.params && dataPermission.params.organizationId) {
-          // 对于组织数据范围，过滤客户的组织ID
-          whereConditions.customer = {
-            organizationId: dataPermission.params.organizationId
-          };
-        }
-      }
-      
-      // 将构建的条件添加到find选项
-      findOptions.where = whereConditions;
-      
-      console.log('执行查询，条件:', JSON.stringify(findOptions));
+
+      // 添加分页
+      queryBuilder.skip(skip).take(take);
       
       // 执行查询
-      const [orders, total] = await this.orderRepository.findAndCount(findOptions);
+      const [orders, total] = await queryBuilder.getManyAndCount();
       
+      // 更新订单的支付状态以匹配账单状态
+      const updatedOrders = orders.map(order => {
+        if (order.bill) {
+          // 如果订单有关联的账单，根据账单状态设置支付状态
+          switch (order.bill.status) {
+            case 'paid':
+              order.paymentStatus = 'paid';
+              break;
+            case 'partially_paid':
+              order.paymentStatus = 'partially_paid';
+              break;
+            case 'unpaid':
+              order.paymentStatus = 'unpaid';
+              break;
+          }
+        }
+        return order;
+      });
+
       // 如果有关键字搜索，我们需要在内存中过滤结果
-      // 注意：这种方式不是最高效的，但对于小数据集是可行的
-      let filteredOrders = orders;
+      let filteredOrders = updatedOrders;
       if (keyword) {
-        filteredOrders = orders.filter(order => 
-          (order.customer?.name && order.customer.name.includes(keyword)) || 
-          (order.customer?.passportNo && order.customer.passportNo.includes(keyword)) || 
-          (order.businesses?.some(b => b.supplier?.name && b.supplier.name.includes(keyword))) ||
-          (order.agent?.name && order.agent.name.includes(keyword)) ||
-          order.id.toString().includes(keyword)
-        );
+        const searchText = keyword.toLowerCase();
+        filteredOrders = filteredOrders.filter(order => {
+          const customerMatch = order.customer?.name?.toLowerCase().includes(searchText) ||
+                              order.customer?.passportNo?.toLowerCase().includes(searchText);
+          const agentMatch = order.agent?.name?.toLowerCase().includes(searchText);
+          const supplierMatch = order.supplier?.name?.toLowerCase().includes(searchText);
+          const productMatch = order.businesses?.some(business => 
+            business.product?.name?.toLowerCase().includes(searchText)
+          );
+          
+          return customerMatch || agentMatch || supplierMatch || productMatch;
+        });
       }
-      
-      console.log(`查询到 ${filteredOrders.length} 条订单数据`);
-      
+
       return {
         data: filteredOrders,
-        total: keyword ? filteredOrders.length : total,
-        success: true,
+        total,
+        current,
+        pageSize,
       };
     } catch (error) {
-      console.error('查询订单列表时发生错误:', error);
-      throw new Error(`查询订单列表失败: ${error.message}`);
+      console.error('获取订单列表失败:', error);
+      throw error;
     }
   }
 
   async findOne(id: number) {
-    const order = await this.orderRepository.findOne({
+    const order = await this.ordersRepository.findOne({
       where: { id },
-      relations: ['customer', 'businesses', 'businesses.product', 'businesses.supplier'],
+      relations: [
+        'customer',
+        'businesses',
+        'businesses.product',
+        'agent',
+        'supplier',
+        'bill'  // 添加bill关联
+      ],
     });
 
     if (!order) {
-      throw new NotFoundException(`订单ID ${id} 不存在`);
+      throw new NotFoundException(`订单 #${id} 不存在`);
+    }
+
+    // 根据账单状态更新订单支付状态
+    if (order.bill) {
+      switch (order.bill.status) {
+        case 'paid':
+          order.paymentStatus = 'paid';
+          break;
+        case 'partially_paid':
+          order.paymentStatus = 'partially_paid';
+          break;
+        case 'unpaid':
+          order.paymentStatus = 'unpaid';
+          break;
+      }
     }
 
     // 根据业务状态计算订单状态
@@ -224,7 +270,7 @@ export class OrdersService {
       success: true,
       data: {
         ...order,
-        status: orderStatus
+        status: orderStatus,
       },
     };
   }
@@ -257,8 +303,8 @@ export class OrdersService {
     return 'pending';
   }
 
-  async update(id: number, updateOrderDto: any) {
-    const order = await this.orderRepository.findOne({ where: { id } });
+  async update(id: number, updateOrderDto: UpdateOrderDto) {
+    const order = await this.ordersRepository.findOne({ where: { id } });
     if (!order) {
       throw new NotFoundException(`订单ID ${id} 不存在`);
     }
@@ -276,7 +322,7 @@ export class OrdersService {
     }
     
     // 保存订单更新
-    await this.orderRepository.save(order);
+    await this.ordersRepository.save(order);
 
     // 如果包含客户信息，更新客户信息
     if (updateOrderDto.customer || (updateOrderDto.name && updateOrderDto.passportNo)) {
@@ -350,7 +396,6 @@ export class OrdersService {
           // 更新现有业务
           const business = businessMap.get(businessDto.id);
           if (businessDto.productId) business.productId = businessDto.productId;
-          if (businessDto.supplierId) business.supplierId = businessDto.supplierId;
           if (businessDto.costPrice) business.costPrice = businessDto.costPrice;
           if (businessDto.agentPrice !== undefined) business.agentPrice = businessDto.agentPrice;
           if (businessDto.salePrice) business.salePrice = businessDto.salePrice;
@@ -366,7 +411,6 @@ export class OrdersService {
           const newBusiness = this.orderBusinessRepository.create({
             orderId: id,
             productId: businessDto.productId,
-            supplierId: businessDto.supplierId,
             costPrice: businessDto.costPrice,
             agentPrice: businessDto.agentPrice,
             salePrice: businessDto.salePrice,
@@ -393,7 +437,7 @@ export class OrdersService {
   }
 
   async remove(id: number) {
-    const order = await this.orderRepository.findOne({ 
+    const order = await this.ordersRepository.findOne({ 
       where: { id },
       relations: ['bill']
     });
@@ -409,22 +453,15 @@ export class OrdersService {
 
     // 查询并删除相关的利润记录
     try {
-      // 1. 删除相关的供应商利润记录
-      await this.dataSource.createQueryBuilder()
-        .delete()
-        .from('supplier_profits')
-        .where('order_id = :orderId', { orderId: id })
-        .execute();
-        
-      // 2. 删除相关的代理商利润记录
+      // 删除相关的代理商利润记录
       await this.dataSource.createQueryBuilder()
         .delete()
         .from('agent_profits')
         .where('order_id = :orderId', { orderId: id })
         .execute();
 
-      // 3. 删除订单
-      await this.orderRepository.remove(order);
+      // 删除订单
+      await this.ordersRepository.remove(order);
       
       return {
         success: true,
@@ -443,274 +480,312 @@ export class OrdersService {
    * @param status 新状态
    */
   async updateOrderBusinessStatus(orderId: number, businessId: number, status: string): Promise<any> {
-    // 获取订单业务
-    const business = await this.orderBusinessRepository.findOne({
-      where: { id: businessId, orderId },
-      relations: ['order', 'product', 'supplier']
-    });
+    try {
+      // 获取订单业务
+      const business = await this.orderBusinessRepository.findOne({
+        where: { id: businessId, orderId },
+        relations: ['order', 'product']
+      });
 
-    if (!business) {
-      throw new NotFoundException(`Order business with ID ${businessId} not found`);
-    }
-    
-    // 如果状态没有变化，直接返回，避免重复处理
-    if (business.status === status) {
+      if (!business) {
+        throw new NotFoundException(`Order business with ID ${businessId} not found`);
+      }
+      
+      // 如果状态没有变化，直接返回，避免重复处理
+      if (business.status === status) {
+        return {
+          success: true,
+          message: '业务状态未变更',
+          data: business,
+        };
+      }
+
+      // 更新状态
+      business.status = status;
+      const updatedBusiness = await this.orderBusinessRepository.save(business);
+      
+      // 获取完整订单信息，包括所有业务
+      console.log('正在获取完整订单信息...');
+      const order = await this.ordersRepository.findOne({
+        where: { id: orderId },
+        relations: ['businesses', 'agent', 'supplier', 'customer']
+      });
+      
+      if (!order) {
+        throw new NotFoundException(`无法加载完整订单信息，ID: ${orderId}`);
+      }
+
+      console.log('订单信息:', {
+        orderId: order.id,
+        agentId: order.agentId,
+        businessCount: order.businesses?.length,
+        hasAgent: !!order.agent,
+        hasSupplier: !!order.supplier,
+        hasCustomer: !!order.customer
+      });
+
+      // 计算新的订单状态
+      const newOrderStatus = this.calculateOrderStatus(order.businesses);
+      const oldOrderStatus = order.status;
+
+      console.log('订单状态:', {
+        oldStatus: oldOrderStatus,
+        newStatus: newOrderStatus,
+        businessStatuses: order.businesses.map(b => ({ id: b.id, status: b.status }))
+      });
+
+      // 如果订单状态发生变化，更新订单状态
+      if (newOrderStatus !== oldOrderStatus) {
+        order.status = newOrderStatus;
+        await this.ordersRepository.save(order);
+
+        // 如果新状态是已完成，检查是否已存在利润记录，如果不存在则生成
+        if (newOrderStatus === 'completed') {
+          console.log('订单状态变更为已完成，检查是否需要生成利润记录...');
+          // 检查是否已经存在利润记录
+          const existingProfits = await this.dataSource
+            .getRepository(AgentProfit)
+            .find({
+              where: { orderId: order.id }
+            });
+
+          console.log('现有利润记录:', {
+            count: existingProfits.length,
+            records: existingProfits.map(p => ({ id: p.id, orderId: p.orderId }))
+          });
+
+          if (existingProfits.length === 0) {
+            console.log('开始生成代理商利润记录...');
+            try {
+              await this.generateAgentProfit(order);
+              console.log('代理商利润记录生成成功');
+            } catch (error) {
+              console.error('生成代理商利润记录时出错:', error);
+              throw error;
+            }
+          }
+        }
+      }
+
       return {
         success: true,
-        message: '业务状态未变更',
-        data: business,
+        data: {
+          business: updatedBusiness,
+          orderStatus: newOrderStatus
+        }
       };
+    } catch (error) {
+      console.error('更新订单状态时出错:', {
+        error,
+        orderId,
+        businessId,
+        status,
+        errorMessage: error.message,
+        stack: error.stack
+      });
+      throw error;
     }
+  }
+  
+  /**
+   * 更新订单状态
+   * @param id 订单ID
+   * @param status 新状态
+   */
+  async updateOrderStatus(id: number, status: string): Promise<any> {
+    try {
+      // 获取订单及其关联数据
+      const order = await this.ordersRepository.findOne({
+        where: { id },
+        relations: ['businesses', 'agent', 'supplier']
+      });
 
-    // 更新状态
-    business.status = status;
-    const updatedBusiness = await this.orderBusinessRepository.save(business);
-    
-    // 如果状态为已完成，则生成利润数据
-    if (status === 'completed') {
-      try {
-        // 获取完整订单信息，确保关系正确
-        const order = await this.orderRepository.findOne({
-          where: { id: orderId },
-          relations: ['agent']
-        });
-        
-        // 重新加载业务对象，确保包含所有需要的关系和字段
-        const fullBusiness = await this.orderBusinessRepository
-          .createQueryBuilder('business')
-          .leftJoinAndSelect('business.supplier', 'supplier')
-          .leftJoinAndSelect('business.product', 'product')
-          .where('business.id = :id', { id: businessId })
-          .getOne();
-        
-        if (!fullBusiness) {
-          throw new NotFoundException(`无法加载完整业务信息，ID: ${businessId}`);
-        }
-        
-        // 补充检查供应商信息
-        if (!fullBusiness.supplier) {
-          console.error('警告: 业务记录缺少供应商信息', businessId);
-          // 尝试手动加载供应商
-          const supplier = await this.dataSource
-            .getRepository(Organization)
-            .findOne({ where: { id: fullBusiness.supplierId } });
-          
-          if (supplier) {
-            fullBusiness.supplier = supplier;
-          }
-        }
-        
-        console.log('订单业务完整信息:', {
-          id: fullBusiness.id,
-          supplierId: fullBusiness.supplierId,
-          supplierName: fullBusiness.supplier?.name,
-          supplierType: fullBusiness.supplier?.type,
-          cooperationType: fullBusiness.supplier?.cooperation_type,
-          commissionRate: fullBusiness.supplier?.commission_rate,
-          costPrice: fullBusiness.costPrice,
-          agentPrice: fullBusiness.agentPrice,
-          salePrice: fullBusiness.salePrice
-        });
-        
-        // 生成代理商利润（先检查是否已存在）
-        if (order && order.agentId) {
-          // 检查是否已存在该订单业务的代理商利润记录
-          const existingAgentProfit = await this.dataSource
-            .getRepository(AgentProfit)
-            .findOne({
-              where: { 
-                orderId: order.id,
-                orderBusinessId: fullBusiness.id,
-                agentId: order.agentId
-              }
-            });
-            
-          if (existingAgentProfit) {
-            console.log(`跳过代理商利润生成: 订单ID=${order.id}, 业务ID=${fullBusiness.id}, 代理商ID=${order.agentId} 的记录已存在`);
-          } else {
-            await this.generateAgentProfit(order, fullBusiness);
-          }
-        }
-        
-        // 生成供应商利润（先检查是否已存在）
-        // 检查是否已存在该订单业务的供应商利润记录
-        const existingSupplierProfit = await this.dataSource
-          .getRepository(SupplierProfit)
-          .findOne({
-            where: { 
-              orderId: order?.id,
-              orderBusinessId: fullBusiness.id,
-              supplierId: fullBusiness.supplierId
-            }
-          });
-          
-        if (existingSupplierProfit) {
-          console.log(`跳过供应商利润生成: 订单ID=${order?.id}, 业务ID=${fullBusiness.id}, 供应商ID=${fullBusiness.supplierId} 的记录已存在`);
-        } else {
-          await this.generateSupplierProfit(order, fullBusiness);
-        }
-      } catch (error) {
-        console.error('生成利润数据失败:', error);
-        // 不影响主流程，继续返回更新后的业务
+      if (!order) {
+        throw new NotFoundException(`订单 #${id} 不存在`);
       }
+
+      // 如果状态没有变化，直接返回
+      if (order.status === status) {
+        return {
+          success: true,
+          message: '订单状态未变更',
+          data: order
+        };
+      }
+
+      // 不允许直接修改订单状态，订单状态应该由业务状态决定
+      throw new BadRequestException('订单状态不能直接修改，它由业务状态自动计算决定');
+    } catch (error) {
+      console.error('更新订单状态时出错:', error);
+      throw error;
     }
-    
-    // 返回标准格式的响应
-    return {
-      success: true,
-      message: '业务状态更新成功',
-      data: updatedBusiness,
-    };
   }
-  
+
   // 修改生成代理商利润的方法
-  private async generateAgentProfit(order: Order, business: OrderBusiness): Promise<void> {
-    if (!order || !order.agentId) return;
-    
-    // 查询代理商信息
-    const agent = await this.agentsRepository.findOne({ where: { id: order.agentId } });
-    if (!agent) return;
-    
-    console.log(`处理代理商[${agent.name}]利润，合作方式: ${agent.cooperationType}`);
-    
-    // 不同的合作方式有不同的计算方法
-    // 只对不分佣类型不生成记录
-    if (agent.cooperationType === 'none' || agent.cooperationType === 'no_commission') {
-      // 不分佣的代理商，不生成利润记录
-      console.log(`代理商[${agent.name}]为不分佣模式，不生成利润记录`);
-      return;
-    }
-    
-    let profit: number = 0;
-    let profitRate: number = 0;
-    let commissionRate: number = 0; 
-    let commission: number = 0;
-    
-    if (agent.cooperationType === 'commission' || agent.cooperationType === 'normal_trade') {
-      // 普通贸易/佣金模式：利润 = 销售价格 - 代理价格
-      profit = business.salePrice - business.agentPrice;
-      profitRate = business.salePrice > 0 ? (profit / business.salePrice) * 100 : 0;
+  private async generateAgentProfit(order: Order): Promise<void> {
+    try {
+      console.log('开始生成代理商利润:', {
+        orderId: order.id,
+        agentId: order.agentId,
+        status: order.status
+      });
+
+      // 如果没有代理，则不生成代理利润
+      if (!order.agentId) {
+        console.log('无需生成代理利润：没有代理', {
+          agentId: order.agentId
+        });
+        return;
+      }
+
+      // 检查是否已经存在该订单的利润记录
+      const existingProfit = await this.dataSource
+        .getRepository(AgentProfit)
+        .findOne({
+          where: {
+            orderId: order.id
+          }
+        });
+
+      if (existingProfit) {
+        console.log(`订单 #${order.id} 的利润记录已存在，跳过生成`, {
+          existingProfitId: existingProfit.id,
+          profit: existingProfit.profit,
+          commission: existingProfit.commission
+        });
+        return;
+      }
+
+      // 获取代理信息
+      const agent = await this.dataSource
+        .getRepository(Agent)
+        .findOne({ where: { id: order.agentId } });
+
+      if (!agent) {
+        console.error(`找不到代理 ID: ${order.agentId}`);
+        return;
+      }
+
+      console.log('获取到代理商信息:', {
+        agentId: agent.id,
+        agentName: agent.name,
+        cooperationType: agent.cooperationType,
+        commissionRate: agent.commissionRate
+      });
+
+      // 计算订单总利润
+      let totalProfit = 0;
+      let totalProfitRate = 0;
+      let commissionRate = 0;
+      let commission = 0;
+
+      // 检查代理商合作方式
+      console.log('检查代理商合作方式:', {
+        cooperationType: agent.cooperationType,
+        isCommission: agent.cooperationType === 'commission',
+        commissionRate: agent.commissionRate
+      });
+
+      // 计算订单总金额
+      const totalAgentPrice = order.businesses.reduce((sum, business) => {
+        const agentPrice = business.agentPrice ? Number(business.agentPrice) : 0;
+        return sum + agentPrice;
+      }, 0);
       
-      // 普通贸易/佣金模式下，佣金就是利润
-      commissionRate = 100; // 100%
-      commission = profit;
+      const totalCostPrice = order.businesses.reduce((sum, business) => {
+        const costPrice = business.costPrice ? Number(business.costPrice) : 0;
+        return sum + costPrice;
+      }, 0);
       
-      console.log(`代理商[${agent.name}]${agent.cooperationType === 'normal_trade' ? '普通贸易' : '佣金模式'}：利润=${profit}，佣金=${commission}`);
-    } else if (agent.cooperationType === 'profit_commission') {
-      // 利润分佣模式：利润 = 销售价格 - 成本价格，然后乘以分佣比例
-      profit = business.salePrice - business.costPrice;
-      profitRate = business.salePrice > 0 ? (profit / business.salePrice) * 100 : 0;
-      
-      // 利润分佣，按比例计算佣金
-      commissionRate = agent.commissionRate || 0;
-      commission = (commissionRate / 100) * profit;
-      
-      console.log(`代理商[${agent.name}]利润分佣：利润=${profit}，佣金率=${commissionRate}%，佣金=${commission}`);
-    } else {
-      // 未知合作方式，使用默认计算方法
-      profit = business.salePrice - business.agentPrice;
-      profitRate = business.salePrice > 0 ? (profit / business.salePrice) * 100 : 0;
-      commissionRate = 0;
-      commission = 0;
-      
-      console.log(`代理商[${agent.name}]未知合作方式(${agent.cooperationType})，使用默认计算`);
+      const totalSalePrice = order.businesses.reduce((sum, business) => {
+        const salePrice = business.salePrice ? Number(business.salePrice) : 0;
+        return sum + salePrice;
+      }, 0);
+
+      console.log('订单金额计算:', {
+        totalAgentPrice,
+        totalCostPrice,
+        totalSalePrice,
+        businesses: order.businesses.map(b => ({
+          id: b.id,
+          agentPrice: b.agentPrice,
+          costPrice: b.costPrice,
+          salePrice: b.salePrice
+        }))
+      });
+
+      if (agent.cooperationType === 'commission') {
+        // 如果代理商是利润分佣模式
+        totalProfit = totalAgentPrice - totalCostPrice;
+        totalProfitRate = totalAgentPrice > 0 ? (totalProfit / totalAgentPrice) * 100 : 0;
+        commissionRate = Number(agent.commissionRate) || 0;
+        commission = totalProfit * (commissionRate / 100);
+        
+        console.log('利润分佣模式计算过程:', {
+          totalCostPrice,
+          totalAgentPrice,
+          totalProfit,
+          totalProfitRate,
+          commissionRate,
+          commission,
+          cooperationType: agent.cooperationType
+        });
+      } else if (agent.cooperationType === 'regular') {
+        // 如果是普通贸易模式
+        totalProfit = totalSalePrice - totalAgentPrice;
+        totalProfitRate = totalSalePrice > 0 ? (totalProfit / totalSalePrice) * 100 : 0;
+        commissionRate = 100;
+        commission = totalProfit;
+        
+        console.log('普通贸易模式计算结果:', {
+          totalAgentPrice,
+          totalSalePrice,
+          totalProfit,
+          totalProfitRate,
+          commissionRate,
+          commission,
+          cooperationType: agent.cooperationType
+        });
+      } else {
+        // 如果是其他模式（如：none），不生成利润
+        console.log('不分佣模式，跳过生成利润:', {
+          cooperationType: agent.cooperationType
+        });
+        return;
+      }
+
+      // 创建代理利润记录
+      const agentProfit = await this.agentProfitService.createAgentProfit({
+        agentId: order.agentId,
+        orderId: order.id,
+        agentPrice: totalAgentPrice,
+        salePrice: totalSalePrice,
+        profit: totalProfit,
+        profitRate: totalProfitRate,
+        commissionRate,
+        commission,
+        settlementStatus: 'unsettled'
+      });
+
+      console.log('成功生成代理利润记录:', {
+        profitId: agentProfit.id,
+        orderId: order.id,
+        agentId: order.agentId,
+        agentName: agent.name,
+        totalProfit,
+        totalProfitRate,
+        commission,
+        commissionRate
+      });
+    } catch (error) {
+      console.error('生成代理利润时出错:', error);
+      throw error;
     }
-    
-    // 创建代理商利润记录
-    await this.agentProfitService.createAgentProfit({
-      agentId: order.agentId,
-      productId: business.productId,
-      orderId: order.id,              // 保存订单ID
-      orderBusinessId: business.id,   // 保存订单业务ID
-      agentPrice: business.agentPrice,
-      salePrice: business.salePrice,
-      profit,
-      profitRate,
-      commissionRate,
-      commission,
-      orderCount: 1,
-      startDate: new Date(),
-      endDate: new Date(),
-      settlementStatus: 'unsettled'
-    });
-  }
-  
-  // 修改生成供应商利润的方法
-  private async generateSupplierProfit(order: Order | null, business: OrderBusiness): Promise<void> {
-    if (!business || !business.supplier) {
-      console.error('无法生成供应商利润：缺少业务信息或供应商信息');
-      return;
-    }
-    
-    // 只针对利润分佣类型的供应商生成利润数据
-    if (business.supplier.cooperation_type !== 'profit_commission') {
-      console.log(`供应商[${business.supplier.name}]非利润分佣类型(${business.supplier.cooperation_type})，不生成利润记录`);
-      return;
-    }
-    
-    // 检查必要字段
-    if (business.costPrice === undefined || business.costPrice === null) {
-      console.error('无法生成供应商利润：缺少成本价格');
-      return;
-    }
-    
-    if (business.salePrice === undefined || business.salePrice === null) {
-      console.error('无法生成供应商利润：缺少销售价格');
-      return;
-    }
-    
-    if (order && order.agentId && (business.agentPrice === undefined || business.agentPrice === null)) {
-      console.error('无法生成供应商利润：有代理商但缺少代理价格');
-      return;
-    }
-    
-    // 检查供应商合作方式
-    const supplier = business.supplier;
-    
-    // 根据是否有代理商，确定供应商的销售价格
-    const supplierSalePrice = order && order.agentId && business.agentPrice !== null
-      ? business.agentPrice  // 有代理商，使用代理价格作为供应商的销售价格
-      : business.salePrice;  // 没有代理商，使用最终销售价格
-    
-    // 计算利润
-    const profit = supplierSalePrice - business.costPrice;
-    
-    // 计算利润率
-    const profitRate = supplierSalePrice > 0 ? (profit / supplierSalePrice) * 100 : 0;
-    
-    // 计算佣金 - 利润分佣方式的供应商才计算佣金
-    let commissionAmount = 0;
-    let commissionRate = 0;
-    
-    // 设置佣金率和计算佣金金额
-    commissionRate = supplier.commission_rate || 0;
-    commissionAmount = (commissionRate / 100) * profit;
-    
-    console.log(`供应商[${supplier.name}]利润分佣：利润=${profit}，佣金率=${commissionRate}%，佣金=${commissionAmount}`);
-    
-    // 创建供应商利润记录
-    await this.supplierProfitService.createSupplierProfit({
-      supplierId: business.supplierId,
-      productId: business.productId,
-      orderId: order ? order.id : undefined,  // 保存订单ID
-      orderBusinessId: business.id,      // 保存订单业务ID
-      purchasePrice: business.costPrice,
-      salePrice: supplierSalePrice,      // 使用根据代理情况确定的销售价格
-      profit: profit,
-      profitRate: profitRate,
-      commissionRate: commissionRate,
-      commission: commissionAmount,
-      isAgentOrder: order && order.agentId ? true : false,
-      orderCount: 1,
-      startDate: new Date(),
-      endDate: new Date(),
-      settlementStatus: 'unsettled'
-    });
   }
 
   async createComment(orderId: number, createCommentDto: CreateOrderCommentDto, user: any) {
     // 检查订单是否存在
-    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    const order = await this.ordersRepository.findOne({ where: { id: orderId } });
     if (!order) {
       throw new NotFoundException(`订单ID ${orderId} 不存在`);
     }
@@ -738,7 +813,7 @@ export class OrdersService {
 
   async getComments(orderId: number) {
     // 检查订单是否存在
-    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    const order = await this.ordersRepository.findOne({ where: { id: orderId } });
     if (!order) {
       throw new NotFoundException(`订单ID ${orderId} 不存在`);
     }
@@ -754,59 +829,5 @@ export class OrdersService {
       success: true,
       data: comments,
     };
-  }
-
-  /**
-   * 获取订单统计数据
-   * @param user 用户对象
-   * @returns 订单统计数据，包括待处理、处理中、已完成订单的数量
-   */
-  async getStatistics(user: User): Promise<any> {
-    // 初始化默认统计数据，确保即使查询失败也能返回有效数据
-    const result = { 
-      success: true,
-      pending: 0, 
-      processing: 0, 
-      completed: 0,
-      total: 0,
-      cachedAt: new Date().toISOString(),  // 添加缓存时间戳
-    };
-
-    try {
-      console.log('开始获取订单统计数据');
-      
-      // 查询订单总数，使用简单计数查询减轻负担
-      const totalOrders = await this.orderRepository.count();
-      
-      result.total = totalOrders;
-      console.log(`总订单数: ${totalOrders}`);
-      
-      // 使用单个高效查询获取状态统计
-      const statusCounts = await this.orderBusinessRepository
-        .createQueryBuilder('business')
-        .select('business.status', 'status')
-        .addSelect('COUNT(business.id)', 'count')
-        .groupBy('business.status')
-        .cache(60000) // 添加60秒缓存
-        .getRawMany();
-      
-      // 解析结果
-      for (const item of statusCounts) {
-        if (item.status === 'pending') {
-          result.pending = parseInt(item.count, 10);
-        } else if (item.status === 'processing') {
-          result.processing = parseInt(item.count, 10);
-        } else if (item.status === 'completed') {
-          result.completed = parseInt(item.count, 10);
-        }
-      }
-      
-      console.log('业务状态统计完成');
-      
-      return result;
-    } catch (error) {
-      console.error('获取订单统计失败:', error);
-      return result; // 即使出错也返回默认结果，避免前端崩溃
-    }
   }
 } 

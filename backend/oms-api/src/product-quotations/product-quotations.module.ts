@@ -5,10 +5,12 @@ import { ProductQuotationsController } from './product-quotations.controller';
 import { ProductQuotation } from './entities/product-quotation.entity';
 import { Product } from '../products/entities/product.entity';
 import { Organization } from '../organizations/entities/organization.entity';
+import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ProductQuotation, Product, Organization]),
+    PermissionsModule,
   ],
   controllers: [ProductQuotationsController],
   providers: [ProductQuotationsService],
